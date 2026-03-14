@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- **Breaking:** Extract `Tak.Port`, `Tak.Config`, and `Tak.Git` modules from monolithic `Tak` module
+- Add confirmation prompt to `mix tak.remove` (skip with `--yes`)
+- Use `:gen_tcp` for port detection instead of `lsof` (removes system dependency for create/list)
+- Graceful process shutdown: send SIGTERM before SIGKILL when stopping worktree services
+- Replace `System.cmd("which", ...)` with `System.find_executable/1` for portability
+- Expanded test coverage (23 -> 34 tests)
+
 ## 0.2.0
 
 - Add `--db` / `--no-db` flags to `mix tak.create` to control database creation

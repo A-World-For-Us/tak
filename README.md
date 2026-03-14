@@ -21,7 +21,7 @@ Git worktree management for Elixir/Phoenix development.
    ```elixir
    def deps do
      [
-       {:tak, "~> 0.2.0", only: :dev}
+       {:tak, "~> 0.3.0", only: :dev}
      ]
    end
    ```
