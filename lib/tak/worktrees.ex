@@ -91,12 +91,14 @@ defmodule Tak.Worktrees do
     trees_dir = Tak.trees_dir()
     base_port = Tak.base_port()
 
+    {main_status, main_pid} = check_port(base_port)
+
     main = %{
       name: "main",
-      branch: Tak.Git.current_branch() || "unknown",
+      branch: Tak.Git.current_branch(),
       port: base_port,
-      status: port_status(base_port),
-      pid: if(Tak.Port.in_use?(base_port), do: Tak.Port.pid(base_port)),
+      status: main_status,
+      pid: main_pid,
       database: nil,
       database_managed?: false,
       main?: true
@@ -132,7 +134,7 @@ defmodule Tak.Worktrees do
     trees_dir = Tak.trees_dir()
     worktree_path = Path.join(trees_dir, name)
 
-    unless File.dir?(worktree_path) do
+    if not File.dir?(worktree_path) do
       {:error, {:not_found, name}}
     else
       info = load_worktree_info(name, worktree_path)
@@ -141,59 +143,35 @@ defmodule Tak.Worktrees do
       if info.port, do: Tak.Port.kill(info.port)
 
       # Remove git worktree
-      remove_args =
-        if force,
-          do: ["worktree", "remove", "--force", worktree_path],
-          else: ["worktree", "remove", worktree_path]
+      with :ok <- remove_git_worktree(worktree_path, force) do
+        # Clean up orphaned files
+        File.rm_rf(worktree_path)
+        System.cmd("git", ["worktree", "prune"], stderr_to_stdout: true)
 
-      case System.cmd("git", remove_args, stderr_to_stdout: true) do
-        {_, 0} ->
-          :ok
+        # Delete branch
+        if info.branch do
+          delete_flag = if force, do: "-D", else: "-d"
+          System.cmd("git", ["branch", delete_flag, info.branch], stderr_to_stdout: true)
+        end
 
-        {output, _} ->
-          unless force do
-            {:error, {:worktree_remove_failed, output}}
-          end
-      end
-      |> case do
-        {:error, _} = err ->
-          err
-
-        :ok ->
-          # Clean up orphaned files
-          File.rm_rf(worktree_path)
-          System.cmd("git", ["worktree", "prune"], stderr_to_stdout: true)
-
-          # Delete branch
-          if info.branch do
-            if force do
-              System.cmd("git", ["branch", "-D", info.branch], stderr_to_stdout: true)
-            else
-              System.cmd("git", ["branch", "-d", info.branch], stderr_to_stdout: true)
-            end
+        # Drop database
+        db_dropped =
+          if info.database_managed? and not keep_db and info.database do
+            match?({_, 0}, System.cmd("dropdb", [info.database], stderr_to_stdout: true))
+          else
+            false
           end
 
-          # Drop database
-          db_dropped =
-            if info.database_managed? and not keep_db and info.database do
-              case System.cmd("dropdb", [info.database], stderr_to_stdout: true) do
-                {_, 0} -> true
-                _ -> false
-              end
-            else
-              false
-            end
+        worktree = %Tak.Worktree{
+          name: name,
+          branch: info.branch,
+          port: info.port,
+          path: worktree_path,
+          database: if(db_dropped, do: info.database),
+          database_managed?: info.database_managed?
+        }
 
-          worktree = %Tak.Worktree{
-            name: name,
-            branch: info.branch,
-            port: info.port,
-            path: worktree_path,
-            database: if(db_dropped, do: info.database),
-            database_managed?: info.database_managed?
-          }
-
-          {:ok, worktree}
+        {:ok, worktree}
       end
     end
   end
@@ -223,6 +201,18 @@ defmodule Tak.Worktrees do
 
   # --- Private helpers ---
 
+  defp remove_git_worktree(worktree_path, force) do
+    args =
+      if force,
+        do: ["worktree", "remove", "--force", worktree_path],
+        else: ["worktree", "remove", worktree_path]
+
+    case System.cmd("git", args, stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {output, _} -> {:error, {:worktree_remove_failed, output}}
+    end
+  end
+
   defp validate_name(name) do
     if name in Tak.names(), do: :ok, else: {:error, {:invalid_name, name}}
   end
@@ -233,44 +223,42 @@ defmodule Tak.Worktrees do
   end
 
   defp load_worktree_info(name, worktree_path) do
-    # Prefer metadata file, fall back to legacy config scraping
-    case Tak.Metadata.read(worktree_path) do
-      %Tak.Worktree{} = wt ->
-        port = wt.port
-        branch = wt.branch || Tak.Git.worktree_branch(worktree_path)
+    {branch, port, database, database_managed?} =
+      case Tak.Metadata.read(worktree_path) do
+        %Tak.Worktree{} = wt ->
+          branch = wt.branch || Tak.Git.worktree_branch(worktree_path)
+          {branch, wt.port, wt.database, wt.database_managed?}
 
-        %{
-          name: name,
-          branch: branch,
-          port: port,
-          status: port_status(port),
-          pid: if(Tak.Port.in_use?(port), do: Tak.Port.pid(port)),
-          database: wt.database,
-          database_managed?: wt.database_managed?,
-          main?: false
-        }
+        nil ->
+          branch = Tak.Git.worktree_branch(worktree_path)
+          port = Tak.Config.get_port(worktree_path)
+          has_db = Tak.Config.has_database?(worktree_path)
+          {branch, port, if(has_db, do: Tak.database_for(name)), has_db}
+      end
 
-      nil ->
-        # Legacy: no metadata file, scrape config
-        branch = Tak.Git.worktree_branch(worktree_path)
-        port = Tak.Config.get_port(worktree_path)
-        has_db = Tak.Config.has_database?(worktree_path)
+    {status, pid} = check_port(port)
 
-        %{
-          name: name,
-          branch: branch,
-          port: port,
-          status: port_status(port),
-          pid: if(port && Tak.Port.in_use?(port), do: Tak.Port.pid(port)),
-          database: if(has_db, do: Tak.database_for(name)),
-          database_managed?: has_db,
-          main?: false
-        }
-    end
+    %{
+      name: name,
+      branch: branch,
+      port: port,
+      status: status,
+      pid: pid,
+      database: database,
+      database_managed?: database_managed?,
+      main?: false
+    }
   end
 
-  defp port_status(nil), do: :unknown
-  defp port_status(port), do: if(Tak.Port.in_use?(port), do: :running, else: :stopped)
+  defp check_port(nil), do: {:unknown, nil}
+
+  defp check_port(port) do
+    if Tak.Port.in_use?(port) do
+      {:running, Tak.Port.pid(port)}
+    else
+      {:stopped, nil}
+    end
+  end
 
   defp write_dev_local_config(worktree_path, name, port, create_db) do
     app_name = Tak.app_name()

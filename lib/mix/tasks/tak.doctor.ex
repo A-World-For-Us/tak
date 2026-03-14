@@ -67,8 +67,8 @@ defmodule Mix.Tasks.Tak.Doctor do
     """)
   end
 
-  defp render_fix(message) do
-    if String.contains?(message, ".gitignore") do
+  defp render_fix(message) when is_binary(message) do
+    if String.ends_with?(message, "in .gitignore") do
       pattern = message |> String.replace(" in .gitignore", "")
       print_fix("Add to .gitignore:\n\n    #{pattern}")
     end

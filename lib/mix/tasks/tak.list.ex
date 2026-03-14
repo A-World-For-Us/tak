@@ -51,11 +51,12 @@ defmodule Mix.Tasks.Tak.List do
   end
 
   defp render_entry(entry) do
-    label = if entry.main?, do: "(main repository)", else: "(#{entry.branch || "unknown"})"
+    branch_display = entry.branch || "unknown"
+    label = if entry.main?, do: "(main repository)", else: "(#{branch_display})"
     Mix.shell().info(IO.ANSI.format([:bright, entry.name, :reset, " ", :faint, label]))
 
     if entry[:main?] do
-      Mix.shell().info("  Branch: #{entry.branch || "unknown"}")
+      Mix.shell().info("  Branch: #{branch_display}")
       Mix.shell().info("  Port:   #{entry.port}")
     else
       if entry.port, do: Mix.shell().info("  Port:     #{entry.port}")
