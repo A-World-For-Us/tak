@@ -69,12 +69,14 @@ defmodule Mix.Tasks.Tak.Create do
 
         Mix.shell().info("Creating worktree '#{name}' for branch '#{branch}'...")
 
-        case Tak.Worktrees.create(branch, name, create_db: create_db) do
-          {:ok, worktree, warnings} ->
-            for {:port_in_use, port} <- warnings do
-              Mix.shell().info("Warning: Port #{port} is already in use")
-            end
+        port = Tak.port_for(name)
 
+        if port && Tak.Port.in_use?(port) do
+          Mix.shell().info("Warning: Port #{port} is already in use")
+        end
+
+        case Tak.Worktrees.create(branch, name, create_db: create_db) do
+          {:ok, worktree} ->
             render_success(worktree)
 
           {:error, {:invalid_name, n}} ->

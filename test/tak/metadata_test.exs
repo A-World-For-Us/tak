@@ -56,6 +56,16 @@ defmodule Tak.MetadataTest do
     assert Tak.Metadata.read(tmp_dir) == nil
   end
 
+  test "read rejects function calls in metadata", %{tmp_dir: tmp_dir} do
+    File.write!(Path.join(tmp_dir, ".tak"), "System.cmd(\"rm\", [\"-rf\", \"/\"])")
+    assert Tak.Metadata.read(tmp_dir) == nil
+  end
+
+  test "read rejects code execution in metadata", %{tmp_dir: tmp_dir} do
+    File.write!(Path.join(tmp_dir, ".tak"), "%{name: IO.puts(\"pwned\")}")
+    assert Tak.Metadata.read(tmp_dir) == nil
+  end
+
   test "metadata file is human-readable", %{tmp_dir: tmp_dir} do
     worktree = %Tak.Worktree{
       name: "armstrong",

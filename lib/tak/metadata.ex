@@ -28,7 +28,7 @@ defmodule Tak.Metadata do
 
     if File.exists?(file) do
       with {:ok, content} <- File.read(file),
-           {%{} = data, _} <- safe_eval(content) do
+           {%{} = data, _} <- safe_decode(content) do
         %Tak.Worktree{
           name: data[:name],
           branch: data[:branch],
@@ -43,11 +43,37 @@ defmodule Tak.Metadata do
     end
   end
 
-  defp safe_eval(content) do
-    Code.eval_string(content)
+  # Parses the metadata as an Elixir term without executing arbitrary code.
+  # Only allows literals (maps, strings, integers, booleans, nil, atoms).
+  defp safe_decode(content) do
+    case Code.string_to_quoted(content) do
+      {:ok, ast} ->
+        if safe_ast?(ast) do
+          {result, _} = Code.eval_quoted(ast)
+          {result, []}
+        else
+          nil
+        end
+
+      _ ->
+        nil
+    end
   rescue
     _ -> nil
   end
+
+  defp safe_ast?({:%{}, _, pairs}) when is_list(pairs) do
+    Enum.all?(pairs, fn {k, v} -> safe_ast?(k) and safe_ast?(v) end)
+  end
+
+  defp safe_ast?(val) when is_atom(val), do: true
+  defp safe_ast?(val) when is_binary(val), do: true
+  defp safe_ast?(val) when is_integer(val), do: true
+  defp safe_ast?(val) when is_float(val), do: true
+  defp safe_ast?(val) when is_boolean(val), do: true
+  defp safe_ast?(nil), do: true
+  defp safe_ast?({val, _, nil}) when is_atom(val), do: true
+  defp safe_ast?(_), do: false
 
   defp path(worktree_path), do: Path.join(worktree_path, @filename)
 end

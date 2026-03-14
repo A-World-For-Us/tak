@@ -35,8 +35,6 @@ defmodule Tak.Worktrees do
       port = Tak.port_for(name)
       database = if create_db, do: Tak.database_for(name)
 
-      port_warning = if Tak.Port.in_use?(port), do: {:port_in_use, port}
-
       # Create trees directory
       File.mkdir_p!(trees_dir)
 
@@ -80,7 +78,7 @@ defmodule Tak.Worktrees do
         mix_in_worktree!(worktree_path, ["ecto.setup"])
       end
 
-      {:ok, worktree, List.wrap(port_warning)}
+      {:ok, worktree}
     end
   end
 

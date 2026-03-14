@@ -82,10 +82,6 @@ defmodule Mix.Tasks.Tak.Remove do
           {:ok, worktree} ->
             render_success(worktree)
 
-          {:error, {:not_found, n}} ->
-            Mix.shell().error("Error: Worktree #{Path.join(trees_dir, n)} does not exist")
-            exit({:shutdown, 1})
-
           {:error, {:worktree_remove_failed, output}} ->
             Mix.shell().error("Failed to remove worktree (uncommitted changes?)")
             Mix.shell().error(output)
