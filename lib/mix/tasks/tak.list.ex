@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Tak.List do
     Mix.shell().info("")
 
     # Main repository
-    main_branch = get_current_branch()
+    main_branch = Tak.Git.current_branch()
     {main_status, main_color, running, stopped} = check_status(base_port, running, stopped)
 
     Mix.shell().info(IO.ANSI.format([:bright, "main", :reset, " ", :faint, "(main repository)"]))
@@ -64,12 +64,12 @@ defmodule Mix.Tasks.Tak.List do
     {running, stopped} =
       Enum.reduce(worktrees, {running, stopped}, fn name, {running_acc, stopped_acc} ->
         worktree_path = Path.join(trees_dir, name)
-        branch = Tak.get_worktree_branch(worktree_path) || "unknown"
-        port = Tak.get_worktree_port(worktree_path)
-        has_db = Tak.has_database_config?(worktree_path)
+        branch = Tak.Git.worktree_branch(worktree_path) || "unknown"
+        port = Tak.Config.get_port(worktree_path)
+        has_db = Tak.Config.has_database?(worktree_path)
 
         {status, color, running_acc, stopped_acc} = check_status(port, running_acc, stopped_acc)
-        pid = if status == "RUNNING", do: Tak.pid_on_port(port), else: nil
+        pid = if status == "RUNNING", do: Tak.Port.pid(port), else: nil
 
         Mix.shell().info(IO.ANSI.format([:bright, name, :reset, " ", :faint, "(#{branch})"]))
 
@@ -105,17 +105,10 @@ defmodule Mix.Tasks.Tak.List do
     Mix.shell().info("")
   end
 
-  defp get_current_branch do
-    case System.cmd("git", ["branch", "--show-current"], stderr_to_stdout: true) do
-      {output, 0} -> String.trim(output)
-      _ -> "unknown"
-    end
-  end
-
   defp check_status(nil, running, stopped), do: {"UNKNOWN", :yellow, running, stopped}
 
   defp check_status(port, running, stopped) do
-    if Tak.port_in_use?(port) do
+    if Tak.Port.in_use?(port) do
       {"RUNNING", :green, running + 1, stopped}
     else
       {"STOPPED", :red, running, stopped + 1}

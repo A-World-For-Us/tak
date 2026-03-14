@@ -96,7 +96,7 @@ defmodule Mix.Tasks.Tak.Create do
 
     port = Tak.port_for(name)
 
-    if Tak.port_in_use?(port) do
+    if Tak.Port.in_use?(port) do
       Mix.shell().info("Warning: Port #{port} is already in use")
     end
 
@@ -106,10 +106,10 @@ defmodule Mix.Tasks.Tak.Create do
     # Create worktree
     Mix.shell().info("Creating worktree '#{name}' for branch '#{branch}'...")
 
-    if branch_exists?(branch) do
-      git!(["worktree", "add", worktree_path, branch])
+    if Tak.Git.branch_exists?(branch) do
+      Tak.Git.run!(["worktree", "add", worktree_path, branch])
     else
-      git!(["worktree", "add", "-b", branch, worktree_path])
+      Tak.Git.run!(["worktree", "add", "-b", branch, worktree_path])
     end
 
     # Copy .env if it exists
@@ -191,22 +191,6 @@ defmodule Mix.Tasks.Tak.Create do
     Mix.shell().info(IO.ANSI.format([:faint, "To start the server:"]))
     Mix.shell().info(IO.ANSI.format([:bright, "  cd #{worktree_path} && iex -S mix phx.server"]))
     Mix.shell().info("")
-  end
-
-  defp branch_exists?(branch) do
-    case System.cmd("git", ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"],
-           stderr_to_stdout: true
-         ) do
-      {_, 0} -> true
-      _ -> false
-    end
-  end
-
-  defp git!(args) do
-    case System.cmd("git", args, stderr_to_stdout: true) do
-      {_, 0} -> :ok
-      {output, _} -> Mix.raise("git #{Enum.join(args, " ")} failed:\n#{output}")
-    end
   end
 
   defp mix_in_worktree!(path, args) do

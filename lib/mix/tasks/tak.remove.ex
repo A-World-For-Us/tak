@@ -51,7 +51,7 @@ defmodule Mix.Tasks.Tak.Remove do
         end
 
         unless skip_confirm do
-          has_db = Tak.has_database_config?(worktree_path)
+          has_db = Tak.Config.has_database?(worktree_path)
 
           Mix.shell().info("This will remove:")
           Mix.shell().info("  Worktree: #{worktree_path}")
@@ -84,15 +84,15 @@ defmodule Mix.Tasks.Tak.Remove do
     worktree_path = Path.join(trees_dir, name)
 
     # Get info before removal
-    branch = Tak.get_worktree_branch(worktree_path)
-    port = Tak.get_worktree_port(worktree_path)
+    branch = Tak.Git.worktree_branch(worktree_path)
+    port = Tak.Config.get_port(worktree_path)
     database = Tak.database_for(name)
-    has_db = Tak.has_database_config?(worktree_path)
+    has_db = Tak.Config.has_database?(worktree_path)
 
     # Stop services on port
     if port do
       Mix.shell().info("Stopping services on port #{port}...")
-      Tak.kill_port(port)
+      Tak.Port.kill(port)
     end
 
     # Remove worktree

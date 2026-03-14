@@ -61,7 +61,7 @@ defmodule TakTest do
     end
   end
 
-describe "has_database_config?/1" do
+describe "Tak.Config.has_database?/1" do
     setup do
       tmp_dir = Path.join(System.tmp_dir!(), "tak_test_#{:rand.uniform(100_000)}")
       File.mkdir_p!(tmp_dir)
@@ -84,7 +84,7 @@ describe "has_database_config?/1" do
         database: "myapp_dev_armstrong"
       """)
 
-      assert Tak.has_database_config?(tmp_dir) == true
+      assert Tak.Config.has_database?(tmp_dir) == true
     end
 
     test "returns false when tak config exists but no database", %{tmp_dir: tmp_dir} do
@@ -99,7 +99,7 @@ describe "has_database_config?/1" do
         http: [port: 4010]
       """)
 
-      assert Tak.has_database_config?(tmp_dir) == false
+      assert Tak.Config.has_database?(tmp_dir) == false
     end
 
     test "returns false when database config exists but not from tak", %{tmp_dir: tmp_dir} do
@@ -113,15 +113,15 @@ describe "has_database_config?/1" do
         database: "myapp_dev"
       """)
 
-      assert Tak.has_database_config?(tmp_dir) == false
+      assert Tak.Config.has_database?(tmp_dir) == false
     end
 
     test "returns false when no config file exists", %{tmp_dir: tmp_dir} do
-      assert Tak.has_database_config?(tmp_dir) == false
+      assert Tak.Config.has_database?(tmp_dir) == false
     end
   end
 
-  describe "get_worktree_port/1" do
+  describe "Tak.Config.get_port/1" do
     setup do
       tmp_dir = Path.join(System.tmp_dir!(), "tak_test_#{:rand.uniform(100_000)}")
       File.mkdir_p!(tmp_dir)
@@ -140,7 +140,7 @@ describe "has_database_config?/1" do
         http: [port: 4010]
       """)
 
-      assert Tak.get_worktree_port(tmp_dir) == 4010
+      assert Tak.Config.get_port(tmp_dir) == 4010
     end
 
     test "reads port from dev.local.exs with multiple http options", %{tmp_dir: tmp_dir} do
@@ -154,7 +154,7 @@ describe "has_database_config?/1" do
         http: [ip: {127, 0, 0, 1}, port: 4020]
       """)
 
-      assert Tak.get_worktree_port(tmp_dir) == 4020
+      assert Tak.Config.get_port(tmp_dir) == 4020
     end
 
     test "reads port from multiline http config", %{tmp_dir: tmp_dir} do
@@ -171,7 +171,7 @@ describe "has_database_config?/1" do
         ]
       """)
 
-      assert Tak.get_worktree_port(tmp_dir) == 4050
+      assert Tak.Config.get_port(tmp_dir) == 4050
     end
 
     test "falls back to mise.local.toml", %{tmp_dir: tmp_dir} do
@@ -180,7 +180,7 @@ describe "has_database_config?/1" do
       PORT = "4030"
       """)
 
-      assert Tak.get_worktree_port(tmp_dir) == 4030
+      assert Tak.Config.get_port(tmp_dir) == 4030
     end
 
     test "falls back to .env", %{tmp_dir: tmp_dir} do
@@ -188,11 +188,11 @@ describe "has_database_config?/1" do
       PORT=4040
       """)
 
-      assert Tak.get_worktree_port(tmp_dir) == 4040
+      assert Tak.Config.get_port(tmp_dir) == 4040
     end
 
     test "returns nil when no config found", %{tmp_dir: tmp_dir} do
-      assert Tak.get_worktree_port(tmp_dir) == nil
+      assert Tak.Config.get_port(tmp_dir) == nil
     end
   end
 end
