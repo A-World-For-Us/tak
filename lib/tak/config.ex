@@ -1,11 +1,5 @@
 defmodule Tak.Config do
-  @moduledoc """
-  Reads port and database settings from Tak-generated config files on disk.
-
-  All parsing is done with regular expressions tuned to match the exact
-  format that `mix tak.create` writes. These functions are not general-purpose
-  Elixir config parsers and will not reliably handle hand-edited files.
-  """
+  @moduledoc false
 
   @doc """
   Returns the port configured for a worktree, or `nil` if none is found.

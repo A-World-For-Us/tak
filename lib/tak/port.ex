@@ -1,11 +1,5 @@
 defmodule Tak.Port do
-  @moduledoc """
-  Detects port availability and stops processes that hold a port.
-
-  `in_use?/1` uses `:gen_tcp` and works anywhere Erlang runs.
-  `pid/1` and `kill/1` shell out to `lsof` and `kill`, so they require
-  macOS or Linux.
-  """
+  @moduledoc false
 
   @doc """
   Returns `true` if the port is already bound by another process.
