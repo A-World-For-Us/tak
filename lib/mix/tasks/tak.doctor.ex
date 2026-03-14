@@ -1,18 +1,24 @@
 defmodule Mix.Tasks.Tak.Doctor do
   @shortdoc "Check if the project is configured for tak"
   @moduledoc """
-  Checks if the project is properly configured for tak worktrees.
+  Validates that the project is ready to use tak worktrees.
 
       $ mix tak.doctor
 
-  This will verify:
+  Runs the following checks and prints a pass/warn/fail result for each:
 
     * `config/config.exs` imports `*.local.exs` overrides
-    * `config/dev.local.exs` is in `.gitignore`
-    * `mise.local.toml` is in `.gitignore`
-    * `trees/` directory is in `.gitignore`
-    * Required tools are available (git, dropdb)
+    * `config/dev.local.exs` is listed in `.gitignore`
+    * `mise.local.toml` is listed in `.gitignore` (warning only; only needed if using mise)
+    * `trees/` directory is listed in `.gitignore`
+    * `git` executable is available
+    * `dropdb` executable is available (warning only; only needed for `mix tak.remove`)
 
+  For any failing check, the output includes the exact fix to apply. Warnings
+  don't count as failures: the task exits cleanly as long as all non-optional
+  checks pass.
+
+  Run this before your first `mix tak.create` on a new project.
   """
 
   use Mix.Task

@@ -1,12 +1,22 @@
 defmodule Tak.Port do
   @moduledoc """
-  Port detection and process management for worktrees.
+  Detects port availability and stops processes that hold a port.
+
+  `in_use?/1` uses `:gen_tcp` and works anywhere Erlang runs.
+  `pid/1` and `kill/1` shell out to `lsof` and `kill`, so they require
+  macOS or Linux.
   """
 
   @doc """
-  Checks if a port is in use.
+  Returns `true` if the port is already bound by another process.
 
-  Uses `:gen_tcp` to probe the port directly, avoiding a dependency on `lsof`.
+  Probes the port with `:gen_tcp` directly, so it does not depend on `lsof`
+  or any external command.
+
+  ## Example
+
+      # Check whether the default Phoenix port is free
+      Tak.Port.in_use?(4000)
   """
   def in_use?(port) do
     case :gen_tcp.listen(port, reuseaddr: true) do
@@ -23,7 +33,14 @@ defmodule Tak.Port do
   end
 
   @doc """
-  Gets the PID using a given port, if any.
+  Returns the PID of the process listening on `port`, or `nil` if none.
+
+  Shells out to `lsof -ti :<port>`. Requires macOS or Linux.
+
+  ## Example
+
+      # Returns a string like "12345", or nil
+      Tak.Port.pid(4010)
   """
   def pid(port) do
     case System.cmd("lsof", ["-ti", ":#{port}"], stderr_to_stdout: true) do
@@ -36,10 +53,19 @@ defmodule Tak.Port do
   end
 
   @doc """
-  Kills processes on a given port.
+  Stops the process listening on `port`. Always returns `:ok`.
 
-  Sends SIGTERM first to allow graceful shutdown, then SIGKILL after
-  2 seconds if the process is still running.
+  Sends `SIGTERM` first to allow graceful shutdown. If the process is still
+  alive after four 500 ms checks (2 seconds total), sends `SIGKILL`.
+
+  Returns `:ok` immediately when no process holds the port.
+
+  Requires macOS or Linux (`lsof`, `kill`).
+
+  ## Example
+
+      Tak.Port.kill(4010)
+      :ok
   """
   def kill(port) do
     case pid(port) do

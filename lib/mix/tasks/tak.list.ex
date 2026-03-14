@@ -1,22 +1,19 @@
 defmodule Mix.Tasks.Tak.List do
   @shortdoc "List all git worktrees with their status"
   @moduledoc """
-  Lists all git worktrees with their configuration and status.
+  Lists all git worktrees with their port, database, and running status.
 
       $ mix tak.list
 
-  Shows for each worktree:
+  Includes the main repository alongside every worktree in `trees/`. For each
+  entry, status is determined by probing the configured port (see
+  `Tak.Port.in_use?/1`):
 
-    * Branch name
-    * Port number
-    * Database name
-    * Running status (with PID if running)
-    * URL if running
+    * `RUNNING` — port is in use; shows the PID and a clickable URL
+    * `STOPPED` — port is free
+    * `UNKNOWN` — no port could be read from the worktree config
 
-  ## Examples
-
-      $ mix tak.list
-
+  A summary line at the end counts running vs. stopped worktrees.
   """
 
   use Mix.Task

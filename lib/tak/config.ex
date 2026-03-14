@@ -1,19 +1,25 @@
 defmodule Tak.Config do
   @moduledoc """
-  Reads worktree configuration from files on disk.
+  Reads port and database settings from Tak-generated config files on disk.
 
-  Parses port and database settings from Tak-generated config files.
-  These functions reliably read config that Tak itself writes. They use
-  regex matching and are not intended for arbitrary Elixir config files.
+  All parsing is done with regular expressions tuned to match the exact
+  format that `mix tak.create` writes. These functions are not general-purpose
+  Elixir config parsers and will not reliably handle hand-edited files.
   """
 
   @doc """
-  Gets the port configured for a worktree by reading its config files.
+  Returns the port configured for a worktree, or `nil` if none is found.
 
-  Checks in order:
-  1. `config/dev.local.exs` - Elixir config
-  2. `mise.local.toml` - mise env (legacy)
-  3. `.env` - dotenv file (legacy)
+  Searches these files in order, returning on the first match:
+
+  1. `config/dev.local.exs` — the primary Tak-generated Elixir config
+  2. `mise.local.toml` — legacy location (mise env file)
+  3. `.env` — legacy location (dotenv file)
+
+  ## Example
+
+      # Returns an integer like 4010, or nil
+      Tak.Config.get_port("/path/to/trees/armstrong")
   """
   def get_port(worktree_path) do
     dev_local_path = Path.join([worktree_path, "config", "dev.local.exs"])
@@ -57,7 +63,17 @@ defmodule Tak.Config do
   end
 
   @doc """
-  Checks if a worktree has Tak-managed database config in dev.local.exs.
+  Returns `true` if the worktree's `config/dev.local.exs` contains a
+  Tak-managed database entry.
+
+  Looks for the `# Tak worktree config` sentinel comment, a `Repo,`
+  reference, and a `database:` key. All three must be present. This lets
+  `mix tak.remove` know whether to run `dropdb` when cleaning up.
+
+  ## Example
+
+      Tak.Config.has_database?("/path/to/trees/armstrong")
+      # => true or false
   """
   def has_database?(worktree_path) do
     dev_local_path = Path.join([worktree_path, "config", "dev.local.exs"])

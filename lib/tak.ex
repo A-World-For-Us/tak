@@ -1,20 +1,22 @@
 defmodule Tak do
   @moduledoc """
-  Git worktree management for Elixir/Phoenix development.
+  Resolves names, ports, and database identifiers for git worktrees.
 
-  Tak (Dutch for "branch") helps you manage multiple git worktrees,
-  each with isolated ports and databases for parallel development.
+  Tak (Dutch for "branch") manages multiple git worktrees in parallel, each
+  with an isolated port and database. This module is the central source of
+  truth for configuration: it reads application config, derives per-worktree
+  values, and exposes them to the Mix tasks and helper modules.
 
-  ## Available Tasks
+  ## Mix tasks
 
-    * `mix tak.create` - Create a new worktree with isolated config
-    * `mix tak.list` - List all worktrees and their status
-    * `mix tak.remove` - Remove a worktree and clean up resources
-    * `mix tak.doctor` - Check if project is configured correctly
+    * `mix tak.create` — create a new worktree with isolated config
+    * `mix tak.list` — list all worktrees and their status
+    * `mix tak.remove` — remove a worktree and clean up resources
+    * `mix tak.doctor` — check if the project is configured correctly
 
   ## Configuration
 
-  Configure Tak in your `config/config.exs`:
+  Set options in `config/config.exs`:
 
       config :tak,
         names: ~w(armstrong hickey mccarthy lovelace kay valim),
@@ -24,20 +26,32 @@ defmodule Tak do
 
   ### Options
 
-    * `names` - Available worktree slot names (default: armstrong, hickey, mccarthy, lovelace, kay, valim)
-    * `base_port` - Base port number; worktrees use 4010, 4020, etc. (default: 4000)
-    * `trees_dir` - Directory to store worktrees (default: "trees")
-    * `create_database` - Whether to run `mix ecto.setup` on create (default: true)
+    * `:names` — worktree slot names, one per available worktree
+      (default: `armstrong hickey mccarthy lovelace kay valim`)
+    * `:base_port` — base port; each worktree gets `base_port + (index + 1) * 10`
+      (default: `4000`)
+    * `:trees_dir` — directory where worktrees are checked out (default: `"trees"`)
+    * `:create_database` — run `mix ecto.setup` when creating a worktree
+      (default: `true`); override per invocation with `--db` or `--no-db`
 
-  The `create_database` option can be overridden per-command with `--db` or `--no-db` flags.
+  ## Port assignment
 
-  ## How It Works
+  Ports are derived from the name's position in the `:names` list:
 
-  Each worktree gets:
-    * `config/dev.local.exs` with isolated port and database
-    * `mise.local.toml` with PORT env var (if mise is installed)
+      base_port + (index + 1) * 10
 
-  Ports are assigned based on name index: armstrong=4010, hickey=4020, mccarthy=4030, etc.
+  With the defaults, `armstrong` gets `4010`, `hickey` gets `4020`,
+  `mccarthy` gets `4030`, and so on.
+
+  ## Per-worktree files
+
+  `mix tak.create` writes two files inside each worktree:
+
+    * `config/dev.local.exs` — sets the HTTP port and (optionally) the database name
+    * `mise.local.toml` — sets the `PORT` env var (only when `mise` is installed)
+
+  `Tak.Config` reads these files back when `mix tak.list` and `mix tak.remove`
+  need to inspect an existing worktree.
   """
 
   @default_names ~w(armstrong hickey mccarthy lovelace kay valim)
@@ -46,42 +60,75 @@ defmodule Tak do
   @default_create_database true
 
   @doc """
-  Returns the list of available worktree names.
+  Returns the configured list of worktree slot names.
+
+  ## Example
+
+      iex> is_list(Tak.names())
+      true
   """
   def names do
     Application.get_env(:tak, :names, @default_names)
   end
 
   @doc """
-  Returns the base port number.
+  Returns the configured base port number.
+
+  ## Example
+
+      iex> is_integer(Tak.base_port())
+      true
   """
   def base_port do
     Application.get_env(:tak, :base_port, @default_base_port)
   end
 
   @doc """
-  Returns the directory where worktrees are stored.
+  Returns the configured directory where worktrees are stored.
+
+  ## Example
+
+      iex> is_binary(Tak.trees_dir())
+      true
   """
   def trees_dir do
     Application.get_env(:tak, :trees_dir, @default_trees_dir)
   end
 
   @doc """
-  Returns whether to create databases by default.
+  Returns whether `mix tak.create` should run `mix ecto.setup` by default.
+
+  Override per invocation with `--db` or `--no-db`.
+
+  ## Example
+
+      iex> is_boolean(Tak.create_database?())
+      true
   """
   def create_database? do
     Application.get_env(:tak, :create_database, @default_create_database)
   end
 
   @doc """
-  Returns the app name from the current Mix project.
+  Returns the OTP application name from the current Mix project.
+
+  Delegates to `Mix.Project.config/0`, so it reflects whichever project is
+  currently loaded. In a worktree, that is the worktree's project.
   """
   def app_name do
     Mix.Project.config()[:app]
   end
 
   @doc """
-  Returns the module name (camelized) from the app name.
+  Returns the CamelCase module name derived from the OTP application name.
+
+  Used when generating config file content that references `MyApp.Repo` and
+  `MyAppWeb.Endpoint`.
+
+  ## Example
+
+      iex> is_binary(Tak.module_name())
+      true
   """
   def module_name do
     app_name()
@@ -90,7 +137,23 @@ defmodule Tak do
   end
 
   @doc """
-  Calculates the port for a given worktree name.
+  Returns the port assigned to a worktree name, or `nil` if the name is not
+  in the configured name list.
+
+  The port is `base_port() + (index + 1) * 10`, where `index` is the name's
+  zero-based position in `names()`. With default config, `"armstrong"` (index
+  0) gets port `4010`, `"hickey"` (index 1) gets `4020`, and so on.
+
+  ## Examples
+
+      iex> Tak.port_for("armstrong")
+      4010
+
+      iex> Tak.port_for("hickey")
+      4020
+
+      iex> Tak.port_for("unknown")
+      nil
   """
   def port_for(name) do
     case Enum.find_index(names(), &(&1 == name)) do
@@ -100,14 +163,27 @@ defmodule Tak do
   end
 
   @doc """
-  Returns the database name for a given worktree.
+  Returns the PostgreSQL database name for a worktree.
+
+  The name follows the pattern `<app>_dev_<worktree>`. For example, with
+  `app_name()` of `:my_app` and a worktree named `"armstrong"`, this returns
+  `"my_app_dev_armstrong"`.
+
+  ## Example
+
+      iex> is_binary(Tak.database_for("armstrong"))
+      true
   """
   def database_for(name) do
     "#{app_name()}_dev_#{name}"
   end
 
   @doc """
-  Checks if mise is available on the system.
+  Returns `true` if the `mise` executable is on `PATH`.
+
+  When `true`, `mix tak.create` also writes a `mise.local.toml` that sets
+  the `PORT` env var, ensuring the port is consistent whether the server is
+  started through `mise` or directly.
   """
   def mise_available? do
     System.find_executable("mise") != nil

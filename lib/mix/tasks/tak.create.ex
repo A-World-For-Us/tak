@@ -1,41 +1,57 @@
 defmodule Mix.Tasks.Tak.Create do
   @shortdoc "Create a new git worktree with isolated config"
   @moduledoc """
-  Creates a git worktree with isolated configuration for Elixir/Phoenix development.
+  Creates a git worktree with an isolated port and database for parallel development.
 
       $ mix tak.create <branch-name> [name]
 
-  This will:
+  The worktree lands in `trees/<name>/` and gets its own `config/dev.local.exs`
+  with a dedicated port and (optionally) a dedicated database. If
+  [mise](https://mise.jdx.dev) is installed, a `mise.local.toml` is also written
+  so the `PORT` env var stays consistent across shells.
 
-    * Create a git worktree in `trees/<name>/`
-    * Create `config/dev.local.exs` with isolated port and database
-    * Create `mise.local.toml` with PORT env var (if mise is installed)
-    * Run `mix deps.get` and `mix ecto.setup`
+  After setup, the task runs `mix deps.get` and, when creating a database,
+  `mix ecto.setup` inside the new worktree.
+
+  If a `.env` file exists in the project root, it is copied into the worktree.
 
   ## Arguments
 
-    * `branch-name` - The git branch to create/checkout (required)
-    * `name` - The worktree name (optional, auto-assigned from available names)
-
-  ## Available Names
-
-  By default: armstrong, hickey, mccarthy, lovelace, kay, valim
-
-  Configure in your `config/config.exs`:
-
-      config :tak, names: ~w(custom names here)
+    * `branch-name` — the git branch to create or check out (required)
+    * `name` — the worktree slot name (optional; auto-assigned when omitted)
 
   ## Options
 
-      --db    - Create database (overrides config)
-      --no-db - Skip database creation (overrides config)
+    * `--db` — create the database, overriding the `create_database` config value
+    * `--no-db` — skip database creation, overriding the `create_database` config value
+
+  By default, tak follows the `create_database` setting in your config (which
+  defaults to `true`). See `Tak.create_database?/0`.
+
+  ## Available Names
+
+  Names come from the `names` config key. The defaults are:
+  `armstrong`, `hickey`, `mccarthy`, `lovelace`, `kay`, `valim`.
+
+  Each name maps to a fixed port offset: the first name gets `base_port + 10`,
+  the second gets `base_port + 20`, and so on. See `Tak.port_for/1`.
+
+  Change the names in `config/config.exs`:
+
+      config :tak, names: ~w(custom names here)
 
   ## Examples
 
+      # Auto-assign a name from the available slots
       $ mix tak.create feature/login
+
+      # Pin to a specific slot
       $ mix tak.create feature/login armstrong
+
+      # Skip database setup
       $ mix tak.create feature/login --no-db
 
+  Run `mix tak.doctor` first if this is a new project to verify your config is ready.
   """
 
   use Mix.Task

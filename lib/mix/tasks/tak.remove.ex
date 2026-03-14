@@ -1,22 +1,30 @@
 defmodule Mix.Tasks.Tak.Remove do
   @shortdoc "Remove a git worktree and clean up resources"
   @moduledoc """
-  Removes a git worktree and cleans up associated resources.
+  Removes a git worktree and releases its port, branch, and database.
 
       $ mix tak.remove <name> [--force] [--yes]
 
-  This will:
+  Steps, in order:
 
-    * Stop any running services on the worktree's port
-    * Remove the git worktree
-    * Delete the git branch (if merged, or with --force)
-    * Drop the associated database
+  1. Kill any process using the worktree's port (SIGTERM, then SIGKILL after 2s).
+     See `Tak.Port.kill/1`.
+  2. Remove the git worktree directory.
+  3. Delete the git branch with `git branch -d` (safe: skips if the branch is
+     unmerged). Pass `--force` to use `git branch -D` instead.
+  4. Drop the database with `dropdb`, but only if tak created it (i.e., the
+     worktree has a Tak-managed database entry in `config/dev.local.exs`).
+
+  Without `--yes`, the task prints what it will delete and asks for confirmation.
 
   ## Arguments
 
-    * `name` - The worktree name to remove (required)
-    * `--force` - Force removal even with uncommitted changes
-    * `--yes` - Skip confirmation prompt
+    * `name` — the worktree slot name to remove (required)
+
+  ## Options
+
+    * `--force` — remove even with uncommitted changes; force-delete the branch
+    * `--yes` — skip the confirmation prompt
 
   ## Examples
 
@@ -24,6 +32,10 @@ defmodule Mix.Tasks.Tak.Remove do
       $ mix tak.remove armstrong --force
       $ mix tak.remove armstrong --yes
 
+  > #### Warning {: .warning}
+  >
+  > `--force` deletes the branch even if it has unmerged commits. Make sure
+  > your work is pushed or merged before using it.
   """
 
   use Mix.Task
