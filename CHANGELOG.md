@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.0
+
+- **Breaking:** Internal helpers (`Tak.Config`, `Tak.Git`, `Tak.Port`) are now `@moduledoc false`
+- Extract all workflow orchestration from Mix tasks into `Tak.Worktrees` core module
+- Mix tasks are now thin wrappers: parse args, call core, render output
+- Add `%Tak.Worktree{}` struct as the canonical data shape
+- Add `.tak` metadata file per worktree (replaces config scraping as primary source of truth)
+- Add `:endpoint` and `:repo` config options for non-standard Phoenix naming
+- Add `--keep-db` flag to `mix tak.remove`
+- Slot selection is now deterministic (first available, not random)
+- Replace `"unknown"` string sentinel with `nil` in `Tak.Git.current_branch/0`
+- Tighten doctor `import_config` check to use regex instead of substring match
+- Legacy config scraping preserved as fallback for pre-metadata worktrees
+- Expanded test coverage (34 -> 51 tests)
+
 ## 0.3.0
 
 - **Breaking:** Extract `Tak.Port`, `Tak.Config`, and `Tak.Git` modules from monolithic `Tak` module
