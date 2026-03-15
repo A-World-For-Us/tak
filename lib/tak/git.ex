@@ -17,7 +17,7 @@ defmodule Tak.Git do
   def worktree_branch(worktree_path) do
     abs_path = Path.expand(worktree_path)
 
-    case System.cmd("git", ["worktree", "list", "--porcelain"], stderr_to_stdout: true) do
+    case Tak.System.cmd("git", ["worktree", "list", "--porcelain"], stderr_to_stdout: true) do
       {output, 0} ->
         output
         |> String.split("\n\n")
@@ -48,7 +48,7 @@ defmodule Tak.Git do
       # => "main" or nil
   """
   def current_branch do
-    case System.cmd("git", ["branch", "--show-current"], stderr_to_stdout: true) do
+    case Tak.System.cmd("git", ["branch", "--show-current"], stderr_to_stdout: true) do
       {output, 0} ->
         case String.trim(output) do
           "" -> nil
@@ -71,11 +71,23 @@ defmodule Tak.Git do
       # => true
   """
   def branch_exists?(branch) do
-    case System.cmd("git", ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"],
+    case Tak.System.cmd("git", ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"],
            stderr_to_stdout: true
          ) do
       {_, 0} -> true
       _ -> false
+    end
+  end
+
+  @doc """
+  Runs a `git` command with the given arguments.
+
+  Returns `{:ok, output}` on success and `{:error, output}` on failure.
+  """
+  def run(args) do
+    case Tak.System.cmd("git", args, stderr_to_stdout: true) do
+      {output, 0} -> {:ok, output}
+      {output, _} -> {:error, output}
     end
   end
 
@@ -91,9 +103,9 @@ defmodule Tak.Git do
       :ok
   """
   def run!(args) do
-    case System.cmd("git", args, stderr_to_stdout: true) do
-      {_, 0} -> :ok
-      {output, _} -> Mix.raise("git #{Enum.join(args, " ")} failed:\n#{output}")
+    case run(args) do
+      {:ok, _output} -> :ok
+      {:error, output} -> Mix.raise("git #{Enum.join(args, " ")} failed:\n#{output}")
     end
   end
 end

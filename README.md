@@ -21,7 +21,7 @@ Git worktree management for Elixir/Phoenix development.
    ```elixir
    def deps do
      [
-       {:tak, "~> 0.4.0", only: :dev}
+       {:tak, "~> 0.4.1", only: :dev}
      ]
    end
    ```
@@ -57,9 +57,12 @@ $ mix tak.create feature/login --no-db    # skip database setup
 
 This will:
 - Create a git worktree in `trees/<name>/`
+- Create `.tak` metadata as Tak's source of truth for the worktree
 - Create `config/dev.local.exs` with isolated port and database
 - If [mise](https://mise.jdx.dev/) is installed, create `mise.local.toml` with PORT env var
 - Run `mix deps.get` and `mix ecto.setup`
+
+Tak writes `.tak` only after bootstrap succeeds. If bootstrap fails, it attempts best-effort cleanup of the partial worktree.
 
 ### List worktrees
 
@@ -114,11 +117,24 @@ config :tak,
 
 ## How it works
 
-Each worktree gets a `config/dev.local.exs` with:
+Each worktree gets:
+- **Tak metadata**: `.tak` stores the worktree name, branch, port, database, and database ownership
 - **Unique port**: Assigned based on name index (armstrong=4010, hickey=4020, etc.)
 - **Isolated database**: `<app>_dev_<name>` (e.g., `myapp_dev_armstrong`)
+- **Local config**: `config/dev.local.exs` applies the port and optional database override inside the worktree
 
 If [mise](https://mise.jdx.dev/) is installed, a `mise.local.toml` is also created with the PORT env var to override any inherited environment.
+
+`mix tak.list` and `mix tak.remove` read `.tak` first. Older worktrees without `.tak` still work through the legacy config-scraping fallback, so no migration is required.
+
+## Runtime API
+
+If you want to call Tak from Elixir instead of only through Mix tasks, the supported runtime API is:
+
+- `Tak.Worktrees`
+- `Tak.Worktree`
+- `Tak.WorktreeStatus`
+- `Tak.RemoveResult`
 
 ## License
 

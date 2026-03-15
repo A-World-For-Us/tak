@@ -24,3 +24,6 @@ tak-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Local planning notes.
+/plans/

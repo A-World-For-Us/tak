@@ -28,14 +28,15 @@ defmodule Tak.Metadata do
 
     if File.exists?(file) do
       with {:ok, content} <- File.read(file),
-           {%{} = data, _} <- safe_decode(content) do
+           {%{} = data, _} <- safe_decode(content),
+           :ok <- validate_data(data) do
         %Tak.Worktree{
           name: data[:name],
           branch: data[:branch],
           port: data[:port],
           path: worktree_path,
           database: data[:database],
-          database_managed?: data[:database_managed?] || false
+          database_managed?: data[:database_managed?]
         }
       else
         _ -> nil
@@ -74,6 +75,17 @@ defmodule Tak.Metadata do
   defp safe_ast?(nil), do: true
   defp safe_ast?({val, _, nil}) when is_atom(val), do: true
   defp safe_ast?(_), do: false
+
+  defp validate_data(data) do
+    cond do
+      not is_binary(data[:name]) -> :error
+      not (is_binary(data[:branch]) or is_nil(data[:branch])) -> :error
+      not (is_integer(data[:port]) or is_nil(data[:port])) -> :error
+      not (is_binary(data[:database]) or is_nil(data[:database])) -> :error
+      not is_boolean(data[:database_managed?]) -> :error
+      true -> :ok
+    end
+  end
 
   defp path(worktree_path), do: Path.join(worktree_path, @filename)
 end

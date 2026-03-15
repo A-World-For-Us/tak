@@ -66,6 +66,20 @@ defmodule Tak.MetadataTest do
     assert Tak.Metadata.read(tmp_dir) == nil
   end
 
+  test "read rejects metadata with missing required keys", %{tmp_dir: tmp_dir} do
+    File.write!(Path.join(tmp_dir, ".tak"), "%{name: \"armstrong\"}\n")
+    assert Tak.Metadata.read(tmp_dir) == nil
+  end
+
+  test "read rejects metadata with invalid value shapes", %{tmp_dir: tmp_dir} do
+    File.write!(
+      Path.join(tmp_dir, ".tak"),
+      "%{name: :armstrong, branch: nil, port: \"4010\", database: nil, database_managed?: true}\n"
+    )
+
+    assert Tak.Metadata.read(tmp_dir) == nil
+  end
+
   test "metadata file is human-readable", %{tmp_dir: tmp_dir} do
     worktree = %Tak.Worktree{
       name: "armstrong",

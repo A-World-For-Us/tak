@@ -37,7 +37,7 @@ defmodule Tak.Port do
       Tak.Port.pid(4010)
   """
   def pid(port) do
-    case System.cmd("lsof", ["-ti", ":#{port}"], stderr_to_stdout: true) do
+    case Tak.System.cmd("lsof", ["-ti", ":#{port}"], stderr_to_stdout: true) do
       {output, 0} ->
         output |> String.trim() |> String.split("\n") |> List.first()
 
@@ -67,10 +67,10 @@ defmodule Tak.Port do
         :ok
 
       pid_str ->
-        System.cmd("kill", [pid_str], stderr_to_stdout: true)
+        Tak.System.cmd("kill", [pid_str], stderr_to_stdout: true)
 
         if process_alive?(pid_str, _retries = 4, _interval_ms = 500) do
-          System.cmd("kill", ["-9", pid_str], stderr_to_stdout: true)
+          Tak.System.cmd("kill", ["-9", pid_str], stderr_to_stdout: true)
         end
 
         :ok
@@ -89,7 +89,7 @@ defmodule Tak.Port do
   end
 
   defp signal_zero?(pid_str) do
-    case System.cmd("kill", ["-0", pid_str], stderr_to_stdout: true) do
+    case Tak.System.cmd("kill", ["-0", pid_str], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end

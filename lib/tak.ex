@@ -14,6 +14,15 @@ defmodule Tak do
     * `mix tak.remove` — remove a worktree and clean up resources
     * `mix tak.doctor` — check if the project is configured correctly
 
+  ## Runtime API
+
+  The supported runtime API lives in:
+
+    * `Tak.Worktrees` — create, list, remove, and doctor operations
+    * `Tak.Worktree` — stable worktree identity and configuration
+    * `Tak.WorktreeStatus` — transient runtime status layered on a worktree
+    * `Tak.RemoveResult` — removal outcome layered on a worktree
+
   ## Configuration
 
   Set options in `config/config.exs`:
@@ -54,6 +63,10 @@ defmodule Tak do
     * `.tak` — Tak-owned metadata (name, branch, port, database)
     * `config/dev.local.exs` — sets the HTTP port and (optionally) the database name
     * `mise.local.toml` — sets the `PORT` env var (only when `mise` is installed)
+
+  `mix tak.list` and `mix tak.remove` read `.tak` first. If a worktree was
+  created before `.tak` existed, Tak falls back to the legacy config-scraping
+  path. No migration is required for older worktrees.
   """
 
   @default_names ~w(armstrong hickey mccarthy lovelace kay valim)
@@ -204,6 +217,6 @@ defmodule Tak do
   started through `mise` or directly.
   """
   def mise_available? do
-    System.find_executable("mise") != nil
+    Tak.System.find_executable("mise") != nil
   end
 end

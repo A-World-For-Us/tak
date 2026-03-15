@@ -1,10 +1,34 @@
 defmodule Tak.Worktrees do
-  @moduledoc false
+  @moduledoc """
+  Public runtime API for Tak worktree lifecycle operations.
+
+  The supported surface is intentionally small:
+
+    * `create/3` creates a worktree and returns `%Tak.Worktree{}` data
+    * `list/0` reports the main repo and known worktrees with runtime status
+    * `remove/2` removes a worktree and returns `%Tak.RemoveResult{}` data
+    * `doctor/0` returns structured environment checks for CLI rendering
+
+  Tak uses three public data shapes:
+
+    * `Tak.Worktree`, stable worktree identity and configuration
+    * `Tak.WorktreeStatus`, transient runtime status layered on top of a worktree
+    * `Tak.RemoveResult`, removal outcome layered on top of a worktree
+  """
+
+  require Logger
 
   @doc """
   Creates a worktree. Returns `{:ok, %Tak.Worktree{}}` or `{:error, reason}`.
 
   When `name` is `nil`, the first available slot is picked automatically.
+
+  The core API does not raise for expected git or mix command failures. Those
+  return tagged errors instead:
+
+    * `{:git_failed, command, output}`
+    * `{:bootstrap_failed, command, output}`
+    * `{:bootstrap_failed, command, output, :cleanup_failed}`
 
   ## Options
 
@@ -17,61 +41,43 @@ defmodule Tak.Worktrees do
          :ok <- validate_not_exists(name) do
       trees_dir = Tak.trees_dir()
       worktree_path = Path.join(trees_dir, name)
-      port = Tak.port_for(name)
-      database = if create_db, do: Tak.database_for(name)
+      branch_exists? = Tak.Git.branch_exists?(branch)
 
-      # Create trees directory
-      File.mkdir_p!(trees_dir)
-
-      # Create git worktree
-      if Tak.Git.branch_exists?(branch) do
-        Tak.Git.run!(["worktree", "add", worktree_path, branch])
-      else
-        Tak.Git.run!(["worktree", "add", "-b", branch, worktree_path])
-      end
-
-      # Copy .env if it exists
-      if File.exists?(".env") do
-        File.cp!(".env", Path.join(worktree_path, ".env"))
-      end
-
-      # Write dev.local.exs
-      write_dev_local_config(worktree_path, name, port, create_db)
-
-      # Write mise.local.toml if mise is available
-      if Tak.mise_available?() do
-        write_mise_config(worktree_path, port)
-      end
-
-      # Build the worktree struct
       worktree = %Tak.Worktree{
         name: name,
         branch: branch,
-        port: port,
+        port: Tak.port_for(name),
         path: worktree_path,
-        database: database,
+        database: if(create_db, do: Tak.database_for(name)),
         database_managed?: create_db
       }
 
-      # Write Tak metadata
-      Tak.Metadata.write!(worktree)
+      maybe_warn_port_in_use(worktree.port)
+      File.mkdir_p!(trees_dir)
 
-      # Run setup in worktree
-      mix_in_worktree!(worktree_path, ["deps.get"])
+      with {:ok, _output} <- add_git_worktree(branch, worktree_path, branch_exists?),
+           :ok <- copy_env_file(worktree_path),
+           :ok <- write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db),
+           :ok <- maybe_write_mise_config(worktree.path, worktree.port),
+           :ok <- bootstrap_worktree(worktree.path, create_db) do
+        Tak.Metadata.write!(worktree)
+        {:ok, worktree}
+      else
+        {:error, {:git_failed, _command, _output} = reason} ->
+          {:error, reason}
 
-      if create_db do
-        mix_in_worktree!(worktree_path, ["ecto.setup"])
+        {:error, {:bootstrap_failed, _command, _output} = reason} ->
+          {:error, cleanup_after_bootstrap_failure(worktree, branch_exists?, reason)}
       end
-
-      {:ok, worktree}
     end
   end
 
   @doc """
-  Lists all worktrees. Returns `{main, worktrees}` where `main` is the
-  main repo entry and `worktrees` is a list. Both use the same map shape:
+  Lists the main repository and all known worktrees.
 
-      %{name, branch, port, status, pid, database, database_managed?}
+  Returns `{main, worktrees}` where `main` is a `%Tak.WorktreeStatus{}` for the
+  current repository and `worktrees` is a list of `%Tak.WorktreeStatus{}`
+  values for entries found in `Tak.trees_dir/0`.
 
   Status is `:running`, `:stopped`, or `:unknown`.
   """
@@ -81,14 +87,18 @@ defmodule Tak.Worktrees do
 
     {main_status, main_pid} = check_port(base_port)
 
-    main = %{
-      name: "main",
-      branch: Tak.Git.current_branch(),
-      port: base_port,
+    main = %Tak.WorktreeStatus{
+      worktree: %Tak.Worktree{
+        name: "main",
+        branch: Tak.Git.current_branch(),
+        port: base_port,
+        path: Path.expand("."),
+        database: nil,
+        database_managed?: false
+      },
       status: main_status,
       pid: main_pid,
-      database: nil,
-      database_managed?: false
+      main?: true
     }
 
     worktrees =
@@ -98,7 +108,7 @@ defmodule Tak.Worktrees do
         |> Enum.filter(&File.dir?(Path.join(trees_dir, &1)))
         |> Enum.map(fn name ->
           worktree_path = Path.join(trees_dir, name)
-          load_worktree_info(name, worktree_path)
+          load_worktree_status(name, worktree_path)
         end)
       else
         []
@@ -108,7 +118,7 @@ defmodule Tak.Worktrees do
   end
 
   @doc """
-  Removes a worktree. Returns `{:ok, %Tak.Worktree{}}` or `{:error, reason}`.
+  Removes a worktree. Returns `{:ok, %Tak.RemoveResult{}}` or `{:error, reason}`.
 
   ## Options
 
@@ -124,41 +134,16 @@ defmodule Tak.Worktrees do
     if not File.dir?(worktree_path) do
       {:error, {:not_found, name}}
     else
-      info = load_worktree_info(name, worktree_path)
+      status = load_worktree_status(name, worktree_path)
+      worktree = status.worktree
 
-      # Stop services on port
-      if info.port, do: Tak.Port.kill(info.port)
+      if worktree.port, do: Tak.Port.kill(worktree.port)
 
-      # Remove git worktree
-      with :ok <- remove_git_worktree(worktree_path, force) do
-        # Clean up orphaned files
-        File.rm_rf(worktree_path)
-        System.cmd("git", ["worktree", "prune"], stderr_to_stdout: true)
-
-        # Delete branch
-        if info.branch do
-          delete_flag = if force, do: "-D", else: "-d"
-          System.cmd("git", ["branch", delete_flag, info.branch], stderr_to_stdout: true)
-        end
-
-        # Drop database
-        db_dropped =
-          if info.database_managed? and not keep_db and info.database do
-            match?({_, 0}, System.cmd("dropdb", [info.database], stderr_to_stdout: true))
-          else
-            false
-          end
-
-        worktree = %Tak.Worktree{
-          name: name,
-          branch: info.branch,
-          port: info.port,
-          path: worktree_path,
-          database: if(db_dropped, do: info.database),
-          database_managed?: info.database_managed?
-        }
-
-        {:ok, worktree}
+      with :ok <- remove_git_worktree(worktree_path, force),
+           :ok <- maybe_delete_branch(worktree.branch, force) do
+        best_effort_prune_worktrees()
+        database_cleanup = maybe_cleanup_database(worktree, keep_db)
+        {:ok, %Tak.RemoveResult{worktree: worktree, database_cleanup: database_cleanup}}
       end
     end
   end
@@ -186,6 +171,16 @@ defmodule Tak.Worktrees do
     {passed, failed, results}
   end
 
+  defp maybe_warn_port_in_use(nil), do: :ok
+
+  defp maybe_warn_port_in_use(port) do
+    if Tak.Port.in_use?(port) do
+      Logger.warning("Tak worktree port #{port} is already in use")
+    end
+
+    :ok
+  end
+
   defp pick_available_name do
     trees_dir = Tak.trees_dir()
 
@@ -200,15 +195,139 @@ defmodule Tak.Worktrees do
     end
   end
 
+  defp add_git_worktree(branch, worktree_path, true) do
+    run_git(["worktree", "add", worktree_path, branch], :git_failed)
+  end
+
+  defp add_git_worktree(branch, worktree_path, false) do
+    run_git(["worktree", "add", "-b", branch, worktree_path], :git_failed)
+  end
+
+  defp cleanup_after_bootstrap_failure(
+         worktree,
+         branch_exists?,
+         {:bootstrap_failed, command, output}
+       ) do
+    cleanup_result =
+      with :ok <- remove_git_worktree(worktree.path, true),
+           :ok <- prune_worktrees(),
+           :ok <- maybe_delete_created_branch(worktree.branch, branch_exists?) do
+        :ok
+      end
+
+    case cleanup_result do
+      :ok ->
+        {:bootstrap_failed, command, output}
+
+      _ ->
+        {:bootstrap_failed, command, output, :cleanup_failed}
+    end
+  end
+
   defp remove_git_worktree(worktree_path, force) do
     args =
       if force,
         do: ["worktree", "remove", "--force", worktree_path],
         else: ["worktree", "remove", worktree_path]
 
-    case System.cmd("git", args, stderr_to_stdout: true) do
-      {_, 0} -> :ok
-      {output, _} -> {:error, {:worktree_remove_failed, output}}
+    case run_git(args, :worktree_remove_failed) do
+      {:ok, _output} ->
+        File.rm_rf(worktree_path)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp prune_worktrees do
+    case run_git(["worktree", "prune"], :git_prune_failed) do
+      {:ok, _output} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp best_effort_prune_worktrees do
+    case prune_worktrees() do
+      :ok ->
+        :ok
+
+      {:error, {_tag, command, output}} ->
+        Logger.warning("Tak prune failed after worktree removal: #{command}\n#{output}")
+        :ok
+    end
+  end
+
+  defp maybe_delete_branch(nil, _force), do: :ok
+
+  defp maybe_delete_branch(branch, force) do
+    delete_flag = if force, do: "-D", else: "-d"
+
+    case run_git(["branch", delete_flag, branch], :branch_delete_failed) do
+      {:ok, _output} -> :ok
+      {:error, _reason} when not force -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_delete_created_branch(_branch, true), do: :ok
+  defp maybe_delete_created_branch(nil, false), do: :ok
+
+  defp maybe_delete_created_branch(branch, false) do
+    case run_git(["branch", "-D", branch], :branch_delete_failed) do
+      {:ok, _output} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_cleanup_database(%Tak.Worktree{database_managed?: false}, _keep_db), do: nil
+  defp maybe_cleanup_database(%Tak.Worktree{database: nil}, _keep_db), do: nil
+  defp maybe_cleanup_database(%Tak.Worktree{}, true), do: :kept
+
+  defp maybe_cleanup_database(%Tak.Worktree{database: database}, false) do
+    case Tak.System.cmd("dropdb", [database], stderr_to_stdout: true) do
+      {_, 0} -> :dropped
+      _ -> :failed
+    end
+  end
+
+  defp copy_env_file(worktree_path) do
+    if File.exists?(".env") do
+      File.cp!(".env", Path.join(worktree_path, ".env"))
+    end
+
+    :ok
+  end
+
+  defp bootstrap_worktree(path, create_db) do
+    with {:ok, _output} <- run_mix(path, ["deps.get"]),
+         :ok <- maybe_setup_database(path, create_db) do
+      :ok
+    end
+  end
+
+  defp maybe_setup_database(_path, false), do: :ok
+
+  defp maybe_setup_database(path, true) do
+    case run_mix(path, ["ecto.setup"]) do
+      {:ok, _output} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp run_git(args, tag) do
+    case Tak.Git.run(args) do
+      {:ok, output} -> {:ok, output}
+      {:error, output} -> {:error, {tag, Enum.join(["git" | args], " "), output}}
+    end
+  end
+
+  defp run_mix(path, args) do
+    command = Enum.join(["mix" | args], " ")
+
+    case Tak.System.cmd("mix", args, cd: path, stderr_to_stdout: true, env: [{"MIX_ENV", "dev"}]) do
+      {output, 0} -> {:ok, output}
+      {output, _} -> {:error, {:bootstrap_failed, command, output}}
     end
   end
 
@@ -223,30 +342,33 @@ defmodule Tak.Worktrees do
     if File.dir?(path), do: {:error, {:already_exists, name}}, else: :ok
   end
 
-  defp load_worktree_info(name, worktree_path) do
-    {branch, port, database, database_managed?} =
+  defp load_worktree_status(name, worktree_path) do
+    worktree =
       case Tak.Metadata.read(worktree_path) do
         %Tak.Worktree{} = wt ->
-          branch = wt.branch || Tak.Git.worktree_branch(worktree_path)
-          {branch, wt.port, wt.database, wt.database_managed?}
+          %Tak.Worktree{wt | branch: wt.branch || Tak.Git.worktree_branch(worktree_path)}
 
         nil ->
           branch = Tak.Git.worktree_branch(worktree_path)
           port = Tak.Config.get_port(worktree_path)
           has_db = Tak.Config.has_database?(worktree_path)
-          {branch, port, if(has_db, do: Tak.database_for(name)), has_db}
+
+          %Tak.Worktree{
+            name: name,
+            branch: branch,
+            port: port,
+            path: worktree_path,
+            database: if(has_db, do: Tak.database_for(name)),
+            database_managed?: has_db
+          }
       end
 
-    {status, pid} = check_port(port)
+    {status, pid} = check_port(worktree.port)
 
-    %{
-      name: name,
-      branch: branch,
-      port: port,
+    %Tak.WorktreeStatus{
+      worktree: worktree,
       status: status,
-      pid: pid,
-      database: database,
-      database_managed?: database_managed?
+      pid: pid
     }
   end
 
@@ -283,13 +405,14 @@ defmodule Tak.Worktrees do
         ""
       end
 
-    tak_config = """
+    tak_config =
+      """
 
-    # Tak worktree config (#{name})
-    # These values override any earlier config above
-    config :#{app_name}, #{endpoint},
-      http: [port: #{port}]
-    """ <> db_config
+      # Tak worktree config (#{name})
+      # These values override any earlier config above
+      config :#{app_name}, #{endpoint},
+        http: [port: #{port}]
+      """ <> db_config
 
     if File.exists?(source_path) do
       existing = File.read!(source_path)
@@ -297,9 +420,19 @@ defmodule Tak.Worktrees do
     else
       File.write!(dest_path, "import Config" <> tak_config)
     end
+
+    :ok
   end
 
-  defp write_mise_config(worktree_path, port) do
+  defp maybe_write_mise_config(worktree_path, port) do
+    if Tak.mise_available?() do
+      do_write_mise_config(worktree_path, port)
+    else
+      :ok
+    end
+  end
+
+  defp do_write_mise_config(worktree_path, port) do
     mise_config = """
     [env]
     PORT = "#{port}"
@@ -307,14 +440,8 @@ defmodule Tak.Worktrees do
 
     mise_path = Path.join(worktree_path, "mise.local.toml")
     File.write!(mise_path, mise_config)
-    System.cmd("mise", ["trust", mise_path], stderr_to_stdout: true)
-  end
-
-  defp mix_in_worktree!(path, args) do
-    case System.cmd("mix", args, cd: path, stderr_to_stdout: true, env: [{"MIX_ENV", "dev"}]) do
-      {_, 0} -> :ok
-      {output, _} -> Mix.raise("mix #{Enum.join(args, " ")} failed in #{path}:\n#{output}")
-    end
+    Tak.System.cmd("mise", ["trust", mise_path], stderr_to_stdout: true)
+    :ok
   end
 
   # --- Doctor checks ---
@@ -376,7 +503,7 @@ defmodule Tak.Worktrees do
     required = Keyword.get(opts, :required, true)
     note = Keyword.get(opts, :note)
 
-    if System.find_executable(name) do
+    if Tak.System.find_executable(name) do
       {:ok, "#{name} available"}
     else
       if required,

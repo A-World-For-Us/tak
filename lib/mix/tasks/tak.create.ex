@@ -62,15 +62,41 @@ defmodule Mix.Tasks.Tak.Create do
             render_success(worktree)
 
           {:error, :no_slots} ->
-            Mix.shell().error("Error: All worktree names are in use (#{Enum.join(Tak.names(), ", ")})")
+            Mix.shell().error(
+              "Error: All worktree names are in use (#{Enum.join(Tak.names(), ", ")})"
+            )
+
             exit({:shutdown, 1})
 
           {:error, {:invalid_name, n}} ->
-            Mix.shell().error("Error: Invalid name '#{n}'. Choose from: #{Enum.join(Tak.names(), ", ")}")
+            Mix.shell().error(
+              "Error: Invalid name '#{n}'. Choose from: #{Enum.join(Tak.names(), ", ")}"
+            )
+
             exit({:shutdown, 1})
 
           {:error, {:already_exists, n}} ->
             Mix.shell().error("Error: Worktree #{Path.join(Tak.trees_dir(), n)} already exists")
+            exit({:shutdown, 1})
+
+          {:error, {:git_failed, command, output}} ->
+            Mix.shell().error("Git command failed: #{command}")
+            Mix.shell().error(output)
+            exit({:shutdown, 1})
+
+          {:error, {:bootstrap_failed, command, output}} ->
+            Mix.shell().error("Bootstrap failed while running #{command}")
+            Mix.shell().error(output)
+            exit({:shutdown, 1})
+
+          {:error, {:bootstrap_failed, command, output, :cleanup_failed}} ->
+            Mix.shell().error("Bootstrap failed while running #{command}")
+            Mix.shell().error(output)
+
+            Mix.shell().error(
+              "Automatic cleanup also failed. Remove the partial worktree manually from #{Tak.trees_dir()}/ or with mix tak.remove --force <name> once you know the slot."
+            )
+
             exit({:shutdown, 1})
         end
     end
@@ -80,7 +106,11 @@ defmodule Mix.Tasks.Tak.Create do
     Mix.shell().info("")
     Mix.shell().info(IO.ANSI.format([:green, "Worktree created successfully!"]))
     Mix.shell().info("")
-    Mix.shell().info(IO.ANSI.format([:bright, worktree.name, :reset, " ", :faint, "(#{worktree.branch})"]))
+
+    Mix.shell().info(
+      IO.ANSI.format([:bright, worktree.name, :reset, " ", :faint, "(#{worktree.branch})"])
+    )
+
     Mix.shell().info("  Port:     #{worktree.port}")
     if worktree.database, do: Mix.shell().info("  Database: #{worktree.database}")
     Mix.shell().info("  Location: #{worktree.path}")

@@ -67,8 +67,15 @@ defmodule Mix.Tasks.Tak.Remove do
         end
 
         unless skip_confirm do
+          worktree = find_worktree(name)
+
           Mix.shell().info("This will remove:")
           Mix.shell().info("  Worktree: #{worktree_path}")
+
+          if worktree && worktree.database do
+            db_note = if keep_db, do: " (kept)", else: ""
+            Mix.shell().info("  Database: #{worktree.database}#{db_note}")
+          end
 
           unless Mix.shell().yes?("Continue?") do
             Mix.shell().info("Aborted.")
@@ -79,13 +86,18 @@ defmodule Mix.Tasks.Tak.Remove do
         Mix.shell().info("Removing worktree '#{name}'...")
 
         case Tak.Worktrees.remove(name, force: force, keep_db: keep_db) do
-          {:ok, worktree} ->
-            render_success(worktree)
+          {:ok, result} ->
+            render_success(result)
 
-          {:error, {:worktree_remove_failed, output}} ->
+          {:error, {:worktree_remove_failed, _command, output}} ->
             Mix.shell().error("Failed to remove worktree (uncommitted changes?)")
             Mix.shell().error(output)
             Mix.shell().info("Use --force to force removal")
+            exit({:shutdown, 1})
+
+          {:error, {_tag, command, output}} ->
+            Mix.shell().error("Command failed: #{command}")
+            Mix.shell().error(output)
             exit({:shutdown, 1})
         end
     end
@@ -103,12 +115,26 @@ defmodule Mix.Tasks.Tak.Remove do
     end
   end
 
-  defp render_success(worktree) do
+  defp find_worktree(name) do
+    {_main, worktrees} = Tak.Worktrees.list()
+
+    Enum.find_value(worktrees, fn entry ->
+      if entry.worktree.name == name, do: entry.worktree
+    end)
+  end
+
+  defp render_success(%Tak.RemoveResult{worktree: worktree, database_cleanup: cleanup}) do
     Mix.shell().info("")
     Mix.shell().info(IO.ANSI.format([:green, "Worktree removed successfully!"]))
     Mix.shell().info("")
     Mix.shell().info("  Name:     #{worktree.name}")
     if worktree.branch, do: Mix.shell().info("  Branch:   #{worktree.branch}")
-    if worktree.database, do: Mix.shell().info("  Database: #{worktree.database}")
+
+    case {worktree.database, cleanup} do
+      {database, :dropped} -> Mix.shell().info("  Database: #{database} (dropped)")
+      {database, :kept} -> Mix.shell().info("  Database: #{database} (kept)")
+      {database, :failed} -> Mix.shell().info("  Database: #{database} (drop failed)")
+      _ -> :ok
+    end
   end
 end
