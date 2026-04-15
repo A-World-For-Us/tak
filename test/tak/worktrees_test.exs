@@ -436,6 +436,36 @@ defmodule Tak.WorktreesTest do
     end
   end
 
+  describe "patch_elixir_manifest/1" do
+    test "patches manifests for all environments under _build", %{tmp_dir: tmp_dir} do
+      worktree_path = Path.join(tmp_dir, "wt")
+      old_root = Path.expand(".")
+      fake_manifest = {:elixir, %{}, [], old_root, []}
+
+      for env <- ["dev", "test"] do
+        manifest_dir = Path.join([worktree_path, "_build", env, "lib", "tak", ".mix"])
+        File.mkdir_p!(manifest_dir)
+        File.write!(Path.join(manifest_dir, "compile.elixir"), :erlang.term_to_binary(fake_manifest))
+      end
+
+      Tak.Worktrees.patch_elixir_manifest(worktree_path)
+
+      new_root = Path.expand(worktree_path)
+
+      for env <- ["dev", "test"] do
+        manifest_path = Path.join([worktree_path, "_build", env, "lib", "tak", ".mix", "compile.elixir"])
+        patched = :erlang.binary_to_term(File.read!(manifest_path))
+        assert elem(patched, 3) == new_root, "expected #{env} manifest root to be patched"
+        assert elem(patched, 0) == :elixir
+      end
+    end
+
+    test "is a no-op when _build does not exist", %{tmp_dir: tmp_dir} do
+      worktree_path = Path.join(tmp_dir, "wt")
+      assert :ok = Tak.Worktrees.patch_elixir_manifest(worktree_path)
+    end
+  end
+
   describe "remove/2" do
     test "keeps the database when requested", %{trees_dir: trees_dir} do
       Application.put_env(:tak, :system_mod, Tak.TestSystem)

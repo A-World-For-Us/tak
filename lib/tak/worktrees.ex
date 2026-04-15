@@ -308,7 +308,53 @@ defmodule Tak.Worktrees do
       end
     end
 
+    patch_elixir_manifest(worktree_path)
     :ok
+  end
+
+  # The Elixir compiler manifest (_build/<env>/lib/<app>/.mix/compile.elixir)
+  # stores File.cwd!() at write time. After copying _build to a worktree at a
+  # different path, the stale cwd triggers a full recompile. Patch it for every
+  # Mix environment found under _build (typically dev and test).
+  #
+  # We locate the cwd field by scanning the manifest tuple for the old project
+  # root (a string). This is more resilient than hardcoding a tuple index, which
+  # shifts across Elixir versions (index 5 in <=1.18, index 6 in 1.19).
+  @doc false
+  def patch_elixir_manifest(worktree_path) do
+    app = Tak.app_name()
+    build_dir = Path.join(worktree_path, "_build")
+
+    envs =
+      if File.dir?(build_dir) do
+        build_dir |> File.ls!() |> Enum.filter(&File.dir?(Path.join(build_dir, &1)))
+      else
+        []
+      end
+
+    old_root = Path.expand(".")
+    new_root = Path.expand(worktree_path)
+
+    for env <- envs do
+      manifest = Path.join([build_dir, env, "lib", "#{app}", ".mix", "compile.elixir"])
+      patch_manifest_file(manifest, old_root, new_root)
+    end
+
+    :ok
+  end
+
+  defp patch_manifest_file(manifest, old_root, new_root) do
+    with {:ok, data} <- File.read(manifest),
+         term when is_tuple(term) <- :erlang.binary_to_term(data) do
+      new_term =
+        Enum.reduce(0..(tuple_size(term) - 1), term, fn i, acc ->
+          if elem(acc, i) == old_root, do: put_elem(acc, i, new_root), else: acc
+        end)
+
+      File.write!(manifest, :erlang.term_to_binary(new_term, [:compressed]))
+    else
+      _ -> :ok
+    end
   end
 
   defp copy_env_file(worktree_path) do
