@@ -514,6 +514,37 @@ defmodule Tak.WorktreesTest do
     after
       Application.delete_env(:tak, :copy_dirs)
     end
+
+    test "prints step labels during creation", _context do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, false)
+
+      Tak.TestSystem.configure(fn
+        "git", ["show-ref" | _], _opts ->
+          {"", 1}
+
+        "git", ["worktree", "add", "-b", _branch, path], _opts ->
+          File.mkdir_p!(path)
+          {"", 0}
+
+        _command, _args, _opts ->
+          {"", 0}
+      end)
+
+      output =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:ok, _worktree} =
+                   Tak.Worktrees.create("feature/test", "armstrong", create_db: false)
+        end)
+
+      assert output =~ "Creating git worktree"
+      assert output =~ "Copying .env"
+      assert output =~ "Writing .tak metadata"
+      assert output =~ "Writing config/dev.local.exs"
+      assert output =~ "Running mix deps.get"
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
   end
 
   describe "copy_build_artifacts/1" do

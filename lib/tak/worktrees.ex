@@ -55,15 +55,15 @@ defmodule Tak.Worktrees do
       maybe_warn_port_in_use(worktree.port)
       File.mkdir_p!(trees_dir)
 
-      with {:ok, _output} <- add_git_worktree(branch, worktree_path, branch_exists?),
-           :ok <- copy_build_artifacts(worktree_path),
-           :ok <- copy_env_file(worktree_path),
+      with {:ok, _output} <- step("Creating git worktree", fn -> add_git_worktree(branch, worktree_path, branch_exists?) end),
+           :ok <- step("Copying #{Enum.join(Tak.copy_dirs(), ", ")}", fn -> copy_build_artifacts(worktree_path) end),
+           :ok <- step("Copying .env", fn -> copy_env_file(worktree_path) end),
            # Write .tak before bootstrap so runtime.exs can read worktree config during compilation
-           :ok <- write_metadata(worktree),
-           :ok <- write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db),
-           :ok <- maybe_write_mise_config(worktree.path, worktree.port),
-           :ok <- bootstrap_deps(worktree.path),
-           :ok <- maybe_setup_database(worktree.path, create_db) do
+           :ok <- step("Writing .tak metadata", fn -> write_metadata(worktree) end),
+           :ok <- step("Writing config/dev.local.exs", fn -> write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db) end),
+           :ok <- step("Writing mise config", fn -> maybe_write_mise_config(worktree.path, worktree.port) end),
+           :ok <- step_stream("Running mix deps.get", fn -> bootstrap_deps(worktree.path) end),
+           :ok <- step_stream("Setting up database", fn -> maybe_setup_database(worktree.path, create_db) end) do
         {:ok, worktree}
       else
         {:error, {:git_failed, _command, _output} = reason} ->
@@ -397,6 +397,16 @@ defmodule Tak.Worktrees do
 
   defp run_mix_stream(path, args, opts \\ []) do
     Tak.System.run_mix_stream(path, args, opts)
+  end
+
+  defp step(label, fun) do
+    Mix.shell().info(IO.ANSI.format([:faint, "  #{label}..."]))
+    fun.()
+  end
+
+  defp step_stream(label, fun) do
+    Mix.shell().info(IO.ANSI.format([:faint, "  #{label}"]))
+    fun.()
   end
 
   defp resolve_name(nil), do: pick_available_name()
