@@ -209,6 +209,21 @@ defmodule Tak do
     "#{app_name()}_dev_#{name}"
   end
 
+  @default_copy_dirs ["_build", "deps"]
+
+  @doc """
+  Returns the list of directories to copy into new worktrees.
+
+  Defaults to `#{inspect(@default_copy_dirs)}`. Set to `false` to disable copying.
+  """
+  def copy_dirs do
+    case Application.get_env(:tak, :copy_dirs, @default_copy_dirs) do
+      false -> []
+      dirs when is_list(dirs) -> dirs
+      _ -> @default_copy_dirs
+    end
+  end
+
   @doc """
   Returns `true` if the `mise` executable is on `PATH`.
 

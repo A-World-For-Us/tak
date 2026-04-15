@@ -56,6 +56,7 @@ defmodule Tak.Worktrees do
       File.mkdir_p!(trees_dir)
 
       with {:ok, _output} <- add_git_worktree(branch, worktree_path, branch_exists?),
+           :ok <- copy_build_artifacts(worktree_path),
            :ok <- copy_env_file(worktree_path),
            :ok <- write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db),
            :ok <- maybe_write_mise_config(worktree.path, worktree.port),
@@ -288,6 +289,26 @@ defmodule Tak.Worktrees do
       {_, 0} -> :dropped
       _ -> :failed
     end
+  end
+
+  @doc false
+  def copy_build_artifacts(worktree_path) do
+    app = Tak.app_name()
+    manifest = Path.join(["_build", "dev", "lib", "#{app}", ".mix", "compile.elixir"])
+
+    if Tak.copy_dirs() != [] and not File.exists?(manifest) do
+      Logger.warning("No compiled app found (_build has no manifest). Worktree will compile from scratch.")
+    end
+
+    for dir <- Tak.copy_dirs() do
+      if File.dir?(dir) do
+        dest = Path.join(worktree_path, dir)
+        File.mkdir_p!(Path.dirname(dest))
+        Tak.System.cmd("cp", ["-r", dir, dest], stderr_to_stdout: true)
+      end
+    end
+
+    :ok
   end
 
   defp copy_env_file(worktree_path) do

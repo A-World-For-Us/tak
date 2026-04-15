@@ -322,6 +322,118 @@ defmodule Tak.WorktreesTest do
       assert log =~ "Tak worktree port 4010 is already in use"
       :gen_tcp.close(socket)
     end
+
+    test "calls copy_build_artifacts during creation", _context do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, ["_build"])
+
+      File.mkdir_p!("_build")
+
+      Tak.TestSystem.configure(fn
+        "git", ["show-ref" | _], _opts ->
+          {"", 1}
+
+        "git", ["worktree", "add", "-b", _branch, path], _opts ->
+          File.mkdir_p!(path)
+          {"", 0}
+
+        _command, _args, _opts ->
+          {"", 0}
+      end)
+
+      assert {:ok, worktree} =
+               Tak.Worktrees.create("feature/test", "armstrong", create_db: false)
+
+      cp_calls =
+        Tak.TestSystem.history()
+        |> Enum.filter(fn {cmd, _, _} -> cmd == "cp" end)
+
+      assert length(cp_calls) == 1
+      {_, ["-r", "_build", dest], _} = hd(cp_calls)
+      assert dest == Path.join(worktree.path, "_build")
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+  end
+
+  describe "copy_build_artifacts/1" do
+    test "copies configured dirs via Tak.System.cmd", %{tmp_dir: tmp_dir} do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, ["_build", "deps"])
+
+      worktree_path = Path.join(tmp_dir, "wt")
+      File.mkdir_p!(worktree_path)
+
+      File.mkdir_p!("_build")
+      File.mkdir_p!("deps")
+
+      Tak.TestSystem.configure(fn _cmd, _args, _opts -> {"", 0} end)
+
+      assert :ok = Tak.Worktrees.copy_build_artifacts(worktree_path)
+
+      history = Tak.TestSystem.history()
+      cp_calls = Enum.filter(history, fn {cmd, _, _} -> cmd == "cp" end)
+      assert length(cp_calls) == 2
+
+      {_, ["-r", "_build", dest1], _} = Enum.at(cp_calls, 0)
+      assert dest1 == Path.join(worktree_path, "_build")
+
+      {_, ["-r", "deps", dest2], _} = Enum.at(cp_calls, 1)
+      assert dest2 == Path.join(worktree_path, "deps")
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+
+    test "skips non-existent source dirs", %{tmp_dir: tmp_dir} do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, ["nonexistent_dir"])
+
+      worktree_path = Path.join(tmp_dir, "wt")
+      File.mkdir_p!(worktree_path)
+
+      Tak.TestSystem.configure(fn _cmd, _args, _opts -> {"", 0} end)
+
+      assert :ok = Tak.Worktrees.copy_build_artifacts(worktree_path)
+
+      cp_calls = Enum.filter(Tak.TestSystem.history(), fn {cmd, _, _} -> cmd == "cp" end)
+      assert cp_calls == []
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+
+    test "does nothing when copy_dirs is empty", %{tmp_dir: tmp_dir} do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, false)
+
+      worktree_path = Path.join(tmp_dir, "wt")
+      File.mkdir_p!(worktree_path)
+
+      Tak.TestSystem.configure(fn _cmd, _args, _opts -> {"", 0} end)
+
+      assert :ok = Tak.Worktrees.copy_build_artifacts(worktree_path)
+      assert Tak.TestSystem.history() == []
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+
+    test "logs warning when manifest is missing and copy_dirs is non-empty", %{tmp_dir: tmp_dir} do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, ["_build"])
+
+      worktree_path = Path.join(tmp_dir, "wt")
+      File.mkdir_p!(worktree_path)
+
+      Tak.TestSystem.configure(fn _cmd, _args, _opts -> {"", 0} end)
+
+      log =
+        capture_log(fn ->
+          Tak.Worktrees.copy_build_artifacts(worktree_path)
+        end)
+
+      assert log =~ "No compiled app found"
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
   end
 
   describe "remove/2" do

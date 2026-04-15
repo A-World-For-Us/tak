@@ -59,6 +59,33 @@ defmodule TakTest do
     end
   end
 
+  describe "copy_dirs/0" do
+    test "returns default dirs" do
+      assert Tak.copy_dirs() == ["_build", "deps"]
+    end
+
+    test "returns empty list when set to false" do
+      Application.put_env(:tak, :copy_dirs, false)
+      assert Tak.copy_dirs() == []
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+
+    test "respects custom list" do
+      Application.put_env(:tak, :copy_dirs, ["_build"])
+      assert Tak.copy_dirs() == ["_build"]
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+
+    test "falls back to default for invalid value" do
+      Application.put_env(:tak, :copy_dirs, "invalid")
+      assert Tak.copy_dirs() == ["_build", "deps"]
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
+  end
+
   describe "mise_available?/0" do
     test "returns a boolean" do
       result = Tak.mise_available?()
