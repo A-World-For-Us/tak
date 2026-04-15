@@ -62,7 +62,8 @@ defmodule Tak.Worktrees do
            :ok <- write_metadata(worktree),
            :ok <- write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db),
            :ok <- maybe_write_mise_config(worktree.path, worktree.port),
-           :ok <- bootstrap_worktree(worktree.path, create_db) do
+           :ok <- bootstrap_deps(worktree.path),
+           :ok <- maybe_setup_database(worktree.path, create_db) do
         {:ok, worktree}
       else
         {:error, {:git_failed, _command, _output} = reason} ->
@@ -371,10 +372,10 @@ defmodule Tak.Worktrees do
     :ok
   end
 
-  defp bootstrap_worktree(path, create_db) do
-    with {:ok, _output} <- run_mix_stream(path, ["deps.get"]),
-         :ok <- maybe_setup_database(path, create_db) do
-      :ok
+  defp bootstrap_deps(path) do
+    case run_mix_stream(path, ["deps.get"]) do
+      {:ok, _output} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

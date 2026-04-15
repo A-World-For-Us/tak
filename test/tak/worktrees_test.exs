@@ -475,6 +475,45 @@ defmodule Tak.WorktreesTest do
     after
       Application.delete_env(:tak, :copy_dirs)
     end
+
+    test "runs deps.get and ecto.setup as separate steps", _context do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, false)
+
+      deps_get_called = :ets.new(:deps_get_called, [:set, :public])
+      :ets.insert(deps_get_called, {:called, false})
+
+      Tak.TestSystem.configure(fn
+        "git", ["show-ref" | _], _opts ->
+          {"", 1}
+
+        "git", ["worktree", "add", "-b", _branch, path], _opts ->
+          File.mkdir_p!(path)
+          {"", 0}
+
+        "mix", ["deps.get"], _opts ->
+          :ets.insert(deps_get_called, {:called, true})
+          {"", 0}
+
+        "mix", ["ecto.setup"], _opts ->
+          [{:called, true}] = :ets.lookup(deps_get_called, :called)
+          {"", 0}
+
+        _command, _args, _opts ->
+          {"", 0}
+      end)
+
+      assert {:ok, _worktree} =
+               Tak.Worktrees.create("feature/test", "armstrong", create_db: true)
+
+      mix_calls =
+        Tak.TestSystem.history()
+        |> Enum.filter(fn {"mix", _, _} -> true; _ -> false end)
+
+      assert [{"mix", ["deps.get"], _}, {"mix", ["ecto.setup"], _}] = mix_calls
+    after
+      Application.delete_env(:tak, :copy_dirs)
+    end
   end
 
   describe "copy_build_artifacts/1" do
