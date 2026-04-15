@@ -289,7 +289,8 @@ defmodule Tak.WorktreesTest do
       assert {:error, {:bootstrap_failed, "mix ecto.setup", "ecto failed", :cleanup_failed}} =
                Tak.Worktrees.create("feature/test", "armstrong", create_db: true)
 
-      refute File.exists?(Path.join([trees_dir, "armstrong", ".tak"]))
+      # Metadata is written before bootstrap, so .tak exists even when cleanup fails
+      assert File.exists?(Path.join([trees_dir, "armstrong", ".tak"]))
       assert File.dir?(Path.join(trees_dir, "armstrong"))
     end
 
@@ -444,6 +445,35 @@ defmodule Tak.WorktreesTest do
     after
       Application.delete_env(:tak, :copy_dirs)
       Application.delete_env(:tak, :write_mise)
+    end
+
+    test "writes metadata before bootstrap so runtime.exs can read it", _context do
+      Application.put_env(:tak, :system_mod, Tak.TestSystem)
+      Application.put_env(:tak, :copy_dirs, false)
+
+      Tak.TestSystem.configure(fn
+        "git", ["show-ref" | _], _opts ->
+          {"", 1}
+
+        "git", ["worktree", "add", "-b", _branch, path], _opts ->
+          File.mkdir_p!(path)
+          {"", 0}
+
+        "mix", ["deps.get"], opts ->
+          worktree_path = opts[:cd]
+          assert File.exists?(Path.join(worktree_path, ".tak")),
+                 ".tak should be written before bootstrap runs"
+
+          {"", 0}
+
+        _command, _args, _opts ->
+          {"", 0}
+      end)
+
+      assert {:ok, _worktree} =
+               Tak.Worktrees.create("feature/test", "armstrong", create_db: false)
+    after
+      Application.delete_env(:tak, :copy_dirs)
     end
   end
 

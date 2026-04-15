@@ -58,10 +58,11 @@ defmodule Tak.Worktrees do
       with {:ok, _output} <- add_git_worktree(branch, worktree_path, branch_exists?),
            :ok <- copy_build_artifacts(worktree_path),
            :ok <- copy_env_file(worktree_path),
+           # Write .tak before bootstrap so runtime.exs can read worktree config during compilation
+           :ok <- write_metadata(worktree),
            :ok <- write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db),
            :ok <- maybe_write_mise_config(worktree.path, worktree.port),
            :ok <- bootstrap_worktree(worktree.path, create_db) do
-        Tak.Metadata.write!(worktree)
         {:ok, worktree}
       else
         {:error, {:git_failed, _command, _output} = reason} ->
@@ -355,6 +356,11 @@ defmodule Tak.Worktrees do
     else
       _ -> :ok
     end
+  end
+
+  defp write_metadata(worktree) do
+    Tak.Metadata.write!(worktree)
+    :ok
   end
 
   defp copy_env_file(worktree_path) do
