@@ -20,6 +20,20 @@ defmodule Tak.TestSystem do
   def find_executable(name) do
     Map.get(Process.get({__MODULE__, :executables}, %{}), name)
   end
+
+  def run_mix_stream(path, args, _opts \\ []) do
+    command = Enum.join(["mix" | args], " ")
+    opts = [cd: path]
+
+    Process.put({__MODULE__, :history}, [
+      {"mix", args, opts} | Process.get({__MODULE__, :history}, [])
+    ])
+
+    case Process.get({__MODULE__, :handler}).("mix", args, opts) do
+      {output, 0} -> {:ok, output}
+      {output, _} -> {:error, {:bootstrap_failed, command, output}}
+    end
+  end
 end
 
 defmodule Tak.WorktreesTest do

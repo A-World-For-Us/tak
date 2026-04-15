@@ -299,7 +299,7 @@ defmodule Tak.Worktrees do
   end
 
   defp bootstrap_worktree(path, create_db) do
-    with {:ok, _output} <- run_mix(path, ["deps.get"]),
+    with {:ok, _output} <- run_mix_stream(path, ["deps.get"]),
          :ok <- maybe_setup_database(path, create_db) do
       :ok
     end
@@ -308,7 +308,7 @@ defmodule Tak.Worktrees do
   defp maybe_setup_database(_path, false), do: :ok
 
   defp maybe_setup_database(path, true) do
-    case run_mix(path, ["ecto.setup"]) do
+    case run_mix_stream(path, ["ecto.setup"]) do
       {:ok, _output} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -321,13 +321,8 @@ defmodule Tak.Worktrees do
     end
   end
 
-  defp run_mix(path, args) do
-    command = Enum.join(["mix" | args], " ")
-
-    case Tak.System.cmd("mix", args, cd: path, stderr_to_stdout: true, env: [{"MIX_ENV", "dev"}]) do
-      {output, 0} -> {:ok, output}
-      {output, _} -> {:error, {:bootstrap_failed, command, output}}
-    end
+  defp run_mix_stream(path, args, opts \\ []) do
+    Tak.System.run_mix_stream(path, args, opts)
   end
 
   defp resolve_name(nil), do: pick_available_name()

@@ -13,6 +13,15 @@ defmodule Mix.Tasks.Tak.CreateTest do
     end
 
     def find_executable(_name), do: nil
+
+    def run_mix_stream(path, args, _opts \\ []) do
+      command = Enum.join(["mix" | args], " ")
+
+      case Process.get({__MODULE__, :handler}).("mix", args, cd: path) do
+        {output, 0} -> {:ok, output}
+        {output, _} -> {:error, {:bootstrap_failed, command, output}}
+      end
+    end
   end
 
   setup do
