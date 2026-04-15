@@ -443,50 +443,34 @@ defmodule Tak.Worktrees do
     end
   end
 
-  defp write_dev_local_config(worktree_path, name, port, create_db) do
-    app_name = Tak.app_name()
-    endpoint = inspect(Tak.endpoint())
-    repo = inspect(Tak.repo())
-
+  defp write_dev_local_config(worktree_path, name, _port, _create_db) do
     config_dir = Path.join(worktree_path, "config")
     File.mkdir_p!(config_dir)
     dest_path = Path.join(config_dir, "dev.local.exs")
     source_path = "config/dev.local.exs"
 
-    db_config =
-      if create_db do
-        database = Tak.database_for(name)
-
-        """
-
-        config :#{app_name}, #{repo},
-          database: "#{database}"
-        """
-      else
-        ""
-      end
-
-    tak_config =
+    # Only set :tak config here - NOT host app config.
+    # Host app config (port, database, url) is read from .tak by runtime.exs.
+    # This avoids compile-time config changes that would invalidate _build cache.
+    tak_marker =
       """
 
-      # Tak worktree config (#{name})
-      # These values override any earlier config above
-      config :#{app_name}, #{endpoint},
-        http: [port: #{port}]
-      """ <> db_config
+      # Tak worktree (#{name}) — runtime overrides read from .tak file
+      config :tak, :worktree, "#{name}"
+      """
 
     if File.exists?(source_path) do
       existing = File.read!(source_path)
-      File.write!(dest_path, existing <> tak_config)
+      File.write!(dest_path, existing <> tak_marker)
     else
-      File.write!(dest_path, "import Config" <> tak_config)
+      File.write!(dest_path, "import Config" <> tak_marker)
     end
 
     :ok
   end
 
   defp maybe_write_mise_config(worktree_path, port) do
-    if Tak.mise_available?() do
+    if Tak.write_mise?() do
       do_write_mise_config(worktree_path, port)
     else
       :ok

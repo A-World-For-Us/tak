@@ -86,6 +86,19 @@ defmodule TakTest do
     end
   end
 
+  describe "write_mise?/0" do
+    test "returns false when config is false" do
+      Application.put_env(:tak, :write_mise, false)
+      assert Tak.write_mise?() == false
+    after
+      Application.delete_env(:tak, :write_mise)
+    end
+
+    test "returns boolean based on config and executable presence" do
+      assert is_boolean(Tak.write_mise?())
+    end
+  end
+
   describe "mise_available?/0" do
     test "returns a boolean" do
       result = Tak.mise_available?()

@@ -225,6 +225,16 @@ defmodule Tak do
   end
 
   @doc """
+  Returns whether `mix tak.create` should write a `mise.local.toml` file.
+
+  When `:write_mise` is explicitly set to `false`, mise config is skipped
+  even if the mise executable is available.
+  """
+  def write_mise? do
+    Application.get_env(:tak, :write_mise, true) and mise_available?()
+  end
+
+  @doc """
   Returns `true` if the `mise` executable is on `PATH`.
 
   When `true`, `mix tak.create` also writes a `mise.local.toml` that sets
