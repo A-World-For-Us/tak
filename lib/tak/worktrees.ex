@@ -62,10 +62,6 @@ defmodule Tak.Worktrees do
            # Write .tak before bootstrap so runtime.exs can read worktree config during compilation
            :ok <- step("Writing .tak metadata", fn -> write_metadata(worktree) end),
            :ok <-
-             step("Writing config/dev.local.exs", fn ->
-               write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db)
-             end),
-           :ok <-
              step("Writing config/runtime.local.exs", fn ->
                write_runtime_local_config(worktree)
              end),
@@ -168,8 +164,6 @@ defmodule Tak.Worktrees do
     raw_trees_dir = Application.get_env(:tak, :trees_dir, "trees")
 
     results = [
-      check_dev_local_import(),
-      check_gitignore("dev.local.exs", "config/dev.local.exs", required: true),
       check_gitignore("runtime.local.exs", "config/runtime.local.exs", required: true),
       check_gitignore("mise.local.toml", "mise.local.toml",
         required: false,
@@ -541,32 +535,6 @@ defmodule Tak.Worktrees do
     end)
   end
 
-  defp write_dev_local_config(worktree_path, name, _port, _create_db) do
-    config_dir = Path.join(worktree_path, "config")
-    File.mkdir_p!(config_dir)
-    dest_path = Path.join(config_dir, "dev.local.exs")
-    source_path = "config/dev.local.exs"
-
-    # Only set :tak config here - NOT host app config.
-    # Host app config (port, database, url) is read from .tak by runtime.exs.
-    # This avoids compile-time config changes that would invalidate _build cache.
-    tak_marker =
-      """
-
-      # Tak worktree (#{name}) — runtime overrides read from .tak file
-      config :tak, :worktree, "#{name}"
-      """
-
-    if File.exists?(source_path) do
-      existing = File.read!(source_path)
-      File.write!(dest_path, existing <> tak_marker)
-    else
-      File.write!(dest_path, "import Config" <> tak_marker)
-    end
-
-    :ok
-  end
-
   defp maybe_write_mise_config(worktree_path, port) do
     if Tak.write_mise?() do
       do_write_mise_config(worktree_path, port)
@@ -588,24 +556,6 @@ defmodule Tak.Worktrees do
   end
 
   # --- Doctor checks ---
-
-  defp check_dev_local_import do
-    config_path = "config/config.exs"
-
-    cond do
-      not File.exists?(config_path) ->
-        {:error, "config/config.exs imports local overrides", "File not found"}
-
-      true ->
-        content = File.read!(config_path)
-
-        if Regex.match?(~r/import_config.*\.local\.exs/, content) do
-          {:ok, "config/config.exs imports local overrides"}
-        else
-          {:error, "config/config.exs imports local overrides", "Missing import"}
-        end
-    end
-  end
 
   defp check_gitignore(pattern, display, opts) do
     required = Keyword.get(opts, :required, true)

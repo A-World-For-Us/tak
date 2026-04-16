@@ -366,68 +366,6 @@ defmodule Tak.WorktreesTest do
       Application.delete_env(:tak, :copy_dirs)
     end
 
-    test "writes dev.local.exs with only tak marker", _context do
-      Application.put_env(:tak, :system_mod, Tak.TestSystem)
-      Application.put_env(:tak, :copy_dirs, false)
-
-      Tak.TestSystem.configure(fn
-        "git", ["show-ref" | _], _opts ->
-          {"", 1}
-
-        "git", ["worktree", "add", "-b", _branch, path], _opts ->
-          File.mkdir_p!(path)
-          {"", 0}
-
-        _command, _args, _opts ->
-          {"", 0}
-      end)
-
-      assert {:ok, worktree} =
-               Tak.Worktrees.create("feature/test", "armstrong", create_db: false)
-
-      dev_local = File.read!(Path.join(worktree.path, "config/dev.local.exs"))
-      assert dev_local =~ ~s(config :tak, :worktree, "armstrong")
-      refute dev_local =~ "http:"
-      refute dev_local =~ "Endpoint"
-      refute dev_local =~ "Repo"
-    after
-      Application.delete_env(:tak, :copy_dirs)
-    end
-
-    test "appends tak marker to existing dev.local.exs", _context do
-      Application.put_env(:tak, :system_mod, Tak.TestSystem)
-      Application.put_env(:tak, :copy_dirs, false)
-
-      File.mkdir_p!("config")
-
-      File.write!("config/dev.local.exs", """
-      import Config
-      config :tak, :custom, true
-      """)
-
-      Tak.TestSystem.configure(fn
-        "git", ["show-ref" | _], _opts ->
-          {"", 1}
-
-        "git", ["worktree", "add", "-b", _branch, path], _opts ->
-          File.mkdir_p!(path)
-          {"", 0}
-
-        _command, _args, _opts ->
-          {"", 0}
-      end)
-
-      assert {:ok, worktree} =
-               Tak.Worktrees.create("feature/test", "armstrong", create_db: false)
-
-      dev_local = File.read!(Path.join(worktree.path, "config/dev.local.exs"))
-      assert dev_local =~ "config :tak, :custom, true"
-      assert dev_local =~ ~s(config :tak, :worktree, "armstrong")
-    after
-      Application.delete_env(:tak, :copy_dirs)
-      File.rm("config/dev.local.exs")
-    end
-
     test "uses write_mise? to gate mise config", _context do
       Application.put_env(:tak, :system_mod, Tak.TestSystem)
       Application.put_env(:tak, :copy_dirs, false)
@@ -554,7 +492,7 @@ defmodule Tak.WorktreesTest do
       assert output =~ "Creating git worktree"
       assert output =~ "Copying .env"
       assert output =~ "Writing .tak metadata"
-      assert output =~ "Writing config/dev.local.exs"
+      assert output =~ "Writing config/runtime.local.exs"
       assert output =~ "Running mix deps.get"
     after
       Application.delete_env(:tak, :copy_dirs)
