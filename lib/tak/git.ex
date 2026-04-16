@@ -71,12 +71,19 @@ defmodule Tak.Git do
       # => true
   """
   def branch_exists?(branch) do
-    case Tak.System.cmd("git", ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"],
-           stderr_to_stdout: true
-         ) do
+    case Tak.System.cmd("git", ["show-ref", "--verify", "--quiet", "refs/heads/#{branch}"], stderr_to_stdout: true) do
       {_, 0} -> true
       _ -> false
     end
+  end
+
+  @doc """
+  Fetches a branch from origin.
+
+  Returns `{:ok, output}` on success and `{:error, output}` on failure.
+  """
+  def fetch(branch) do
+    run(["fetch", "origin", branch])
   end
 
   @doc """

@@ -30,6 +30,9 @@ defmodule Mix.Tasks.Tak.Create do
       $ mix tak.create feature/login
       $ mix tak.create feature/login armstrong
       $ mix tak.create feature/login --no-db
+      $ mix tak.create 123
+
+  A numeric argument is treated as a GitHub PR number and resolved via `gh`.
 
   Run `mix tak.doctor` first if this is a new project to verify your config is ready.
   """
@@ -57,9 +60,15 @@ defmodule Mix.Tasks.Tak.Create do
 
         exit({:shutdown, 1})
 
-      [branch | rest] ->
+      [input | rest] ->
+        {branch, pr_context} = resolve_input(input)
         name = List.first(rest)
-        display_name = name || preview_auto_name()
+
+        if pr_context do
+          Mix.shell().info("PR ##{pr_context.number}: #{pr_context.title}")
+        end
+
+        display_name = name || preview_auto_name(branch)
 
         if display_name do
           Mix.shell().info("Creating worktree '#{display_name}' for branch '#{branch}'...")
@@ -113,10 +122,35 @@ defmodule Mix.Tasks.Tak.Create do
     end
   end
 
-  defp preview_auto_name do
+  defp resolve_input(input) do
+    if Regex.match?(~r/^\d+$/, input) do
+      resolve_pr(String.to_integer(input))
+    else
+      {input, nil}
+    end
+  end
+
+  defp resolve_pr(number) do
+    Mix.shell().info("Resolving PR ##{number}...")
+
+    case System.cmd("gh", ["pr", "view", to_string(number), "--json", "headRefName,title,number"], stderr_to_stdout: true) do
+      {output, 0} ->
+        %{"headRefName" => branch, "title" => title, "number" => n} = JSON.decode!(output)
+
+        Mix.shell().info(IO.ANSI.format([:faint, "  Fetching #{branch}..."]))
+        Tak.Git.fetch(branch)
+
+        {branch, %{number: n, title: title}}
+
+      {output, _} ->
+        Mix.raise("Failed to resolve PR ##{number}: #{String.trim(output)}")
+    end
+  end
+
+  defp preview_auto_name(branch) do
     case Tak.names() do
       :dynamic ->
-        nil
+        if branch, do: Tak.Name.from_branch(branch), else: nil
 
       names ->
         trees_dir = Tak.trees_dir()
