@@ -69,6 +69,7 @@ defmodule Tak.Worktrees do
              step("Writing config/runtime.local.exs", fn ->
                write_runtime_local_config(worktree)
              end),
+           :ok <- step("Registering Caddy route", fn -> Tak.Caddy.add_route(worktree) end),
            :ok <- step("Writing mise config", fn -> maybe_write_mise_config(worktree.path, worktree.port) end),
            :ok <- step_stream("Running mix deps.get", fn -> bootstrap_deps(worktree.path) end),
            :ok <- step_stream("Setting up database", fn -> maybe_setup_database(worktree.path, create_db) end) do
@@ -152,6 +153,7 @@ defmodule Tak.Worktrees do
       with :ok <- remove_git_worktree(worktree_path, force),
            :ok <- maybe_delete_branch(worktree.branch, force) do
         best_effort_prune_worktrees()
+        Tak.Caddy.remove_route(name)
         database_cleanup = maybe_cleanup_database(worktree, keep_db)
         {:ok, %Tak.RemoveResult{worktree: worktree, database_cleanup: database_cleanup}}
       end
@@ -163,16 +165,20 @@ defmodule Tak.Worktrees do
   list of `{:ok | :error | :warn, message}` tuples.
   """
   def doctor do
+    raw_trees_dir = Application.get_env(:tak, :trees_dir, "trees")
+
     results = [
       check_dev_local_import(),
       check_gitignore("dev.local.exs", "config/dev.local.exs", required: true),
+      check_gitignore("runtime.local.exs", "config/runtime.local.exs", required: true),
       check_gitignore("mise.local.toml", "mise.local.toml",
         required: false,
         note: "only needed if using mise"
       ),
-      check_gitignore(Tak.trees_dir(), "#{Tak.trees_dir()}/", required: true),
+      check_gitignore(raw_trees_dir, "#{raw_trees_dir}/", required: true),
       check_executable("git", required: true),
-      check_executable("dropdb", required: false, note: "needed for tak.remove")
+      check_executable("dropdb", required: false, note: "needed for tak.remove"),
+      check_executable("curl", required: false, note: "needed for Caddy route management")
     ]
 
     passed = Enum.count(results, &match?({:ok, _}, &1))
