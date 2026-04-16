@@ -65,6 +65,10 @@ defmodule Tak.Worktrees do
              step("Writing config/dev.local.exs", fn ->
                write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db)
              end),
+           :ok <-
+             step("Writing config/runtime.local.exs", fn ->
+               write_runtime_local_config(worktree)
+             end),
            :ok <- step("Writing mise config", fn -> maybe_write_mise_config(worktree.path, worktree.port) end),
            :ok <- step_stream("Running mix deps.get", fn -> bootstrap_deps(worktree.path) end),
            :ok <- step_stream("Setting up database", fn -> maybe_setup_database(worktree.path, create_db) end) do
@@ -492,6 +496,43 @@ defmodule Tak.Worktrees do
     else
       {:stopped, nil}
     end
+  end
+
+  defp write_runtime_local_config(%Tak.Worktree{} = worktree) do
+    config_dir = Path.join(worktree.path, "config")
+    File.mkdir_p!(config_dir)
+    dest_path = Path.join(config_dir, "runtime.local.exs")
+
+    env_vars = resolve_env_vars(worktree)
+
+    tak_block =
+      [
+        "# --- tak worktree overrides (#{worktree.name}) ---",
+        ~s[System.put_env("TAK_WORKTREE", #{inspect(worktree.name)})]
+        | Enum.map(env_vars, fn {key, val} -> ~s[System.put_env(#{inspect(key)}, #{inspect(val)})] end)
+      ]
+      |> Enum.join("\n")
+
+    if File.exists?(dest_path) do
+      existing = File.read!(dest_path)
+      File.write!(dest_path, existing <> "\n\n" <> tak_block <> "\n")
+    else
+      File.write!(dest_path, tak_block <> "\n")
+    end
+
+    :ok
+  end
+
+  defp resolve_env_vars(worktree) do
+    Application.get_env(:tak, :env_vars, %{})
+    |> Enum.map(fn {key, pattern} ->
+      val =
+        pattern
+        |> String.replace("{name}", worktree.name)
+        |> String.replace("{port}", to_string(worktree.port))
+
+      {key, val}
+    end)
   end
 
   defp write_dev_local_config(worktree_path, name, _port, _create_db) do

@@ -156,6 +156,16 @@ defmodule Tak do
   end
 
   @doc """
+  Returns the hostname pattern for worktrees, or `nil` if not configured.
+
+  The pattern should contain `{name}` which will be replaced with the
+  worktree name. Example: `"{name}.app-local.example.com"`.
+  """
+  def hostname_pattern do
+    Application.get_env(:tak, :hostname_pattern)
+  end
+
+  @doc """
   Returns the OTP application name from the current Mix project.
 
   Delegates to `Mix.Project.config/0`, so it reflects whichever project is
