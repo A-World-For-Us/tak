@@ -177,8 +177,18 @@ defmodule Tak.WorktreesTest do
   end
 
   describe "create/3 validation" do
-    test "rejects invalid names" do
+    test "rejects invalid names in fixed mode" do
       assert {:error, {:invalid_name, "nope"}} = Tak.Worktrees.create("branch", "nope")
+    end
+
+    test "accepts any name in dynamic mode" do
+      Application.put_env(:tak, :names, :dynamic)
+      # "nope" would be rejected in fixed mode, but accepted in dynamic mode.
+      # It will fail at the git step (not validation), which proves it passed name validation.
+      result = Tak.Worktrees.create("branch", "nope")
+      refute match?({:error, {:invalid_name, _}}, result)
+    after
+      Application.put_env(:tak, :names, ["armstrong", "hickey"])
     end
 
     test "rejects already-existing worktrees", %{trees_dir: trees_dir} do
@@ -461,6 +471,7 @@ defmodule Tak.WorktreesTest do
 
         "mix", ["deps.get"], opts ->
           worktree_path = opts[:cd]
+
           assert File.exists?(Path.join(worktree_path, ".tak")),
                  ".tak should be written before bootstrap runs"
 
@@ -508,7 +519,10 @@ defmodule Tak.WorktreesTest do
 
       mix_calls =
         Tak.TestSystem.history()
-        |> Enum.filter(fn {"mix", _, _} -> true; _ -> false end)
+        |> Enum.filter(fn
+          {"mix", _, _} -> true
+          _ -> false
+        end)
 
       assert [{"mix", ["deps.get"], _}, {"mix", ["ecto.setup"], _}] = mix_calls
     after

@@ -37,8 +37,9 @@ defmodule Tak.Worktrees do
   def create(branch, name, opts \\ []) do
     create_db = Keyword.get(opts, :create_db, Tak.create_database?())
 
-    with {:ok, name} <- resolve_name(name),
-         :ok <- validate_not_exists(name) do
+    with {:ok, name} <- resolve_name(name, branch),
+         :ok <- validate_not_exists(name),
+         {:ok, port} <- resolve_port(name) do
       trees_dir = Tak.trees_dir()
       worktree_path = Path.join(trees_dir, name)
       branch_exists? = Tak.Git.branch_exists?(branch)
@@ -46,7 +47,7 @@ defmodule Tak.Worktrees do
       worktree = %Tak.Worktree{
         name: name,
         branch: branch,
-        port: Tak.port_for(name),
+        port: port,
         path: worktree_path,
         database: if(create_db, do: Tak.database_for(name)),
         database_managed?: create_db
@@ -60,7 +61,10 @@ defmodule Tak.Worktrees do
            :ok <- step("Copying .env", fn -> copy_env_file(worktree_path) end),
            # Write .tak before bootstrap so runtime.exs can read worktree config during compilation
            :ok <- step("Writing .tak metadata", fn -> write_metadata(worktree) end),
-           :ok <- step("Writing config/dev.local.exs", fn -> write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db) end),
+           :ok <-
+             step("Writing config/dev.local.exs", fn ->
+               write_dev_local_config(worktree.path, worktree.name, worktree.port, create_db)
+             end),
            :ok <- step("Writing mise config", fn -> maybe_write_mise_config(worktree.path, worktree.port) end),
            :ok <- step_stream("Running mix deps.get", fn -> bootstrap_deps(worktree.path) end),
            :ok <- step_stream("Setting up database", fn -> maybe_setup_database(worktree.path, create_db) end) do
@@ -183,17 +187,36 @@ defmodule Tak.Worktrees do
     :ok
   end
 
-  defp pick_available_name do
-    trees_dir = Tak.trees_dir()
+  defp pick_available_name(branch) do
+    case Tak.names() do
+      :dynamic ->
+        existing = existing_worktree_names()
+        {:ok, Tak.Name.from_branch(branch, existing)}
 
-    available =
-      Enum.filter(Tak.names(), fn name ->
-        not File.dir?(Path.join(trees_dir, name))
-      end)
+      names ->
+        trees_dir = Tak.trees_dir()
 
-    case available do
-      [] -> {:error, :no_slots}
-      [first | _] -> {:ok, first}
+        available =
+          Enum.filter(names, fn name ->
+            not File.dir?(Path.join(trees_dir, name))
+          end)
+
+        case available do
+          [] -> {:error, :no_slots}
+          [first | _] -> {:ok, first}
+        end
+    end
+  end
+
+  defp existing_worktree_names do
+    dir = Tak.trees_dir()
+
+    if File.dir?(dir) do
+      dir
+      |> File.ls!()
+      |> Enum.filter(&File.dir?(Path.join(dir, &1)))
+    else
+      []
     end
   end
 
@@ -409,10 +432,21 @@ defmodule Tak.Worktrees do
     fun.()
   end
 
-  defp resolve_name(nil), do: pick_available_name()
+  defp resolve_name(nil, branch), do: pick_available_name(branch)
+  defp resolve_name(name, _branch), do: validate_name(name)
 
-  defp resolve_name(name) do
-    if name in Tak.names(), do: {:ok, name}, else: {:error, {:invalid_name, name}}
+  defp validate_name(name) do
+    case Tak.names() do
+      :dynamic -> {:ok, name}
+      names -> if name in names, do: {:ok, name}, else: {:error, {:invalid_name, name}}
+    end
+  end
+
+  defp resolve_port(name) do
+    case Tak.names() do
+      :dynamic -> Tak.allocate_port()
+      _names -> {:ok, Tak.port_for(name)}
+    end
   end
 
   defp validate_not_exists(name) do

@@ -49,7 +49,12 @@ defmodule Mix.Tasks.Tak.Create do
     case positional do
       [] ->
         Mix.shell().error("Usage: mix tak.create <branch-name> [name] [--db | --no-db]")
-        Mix.shell().info("Available names: #{Enum.join(Tak.names(), ", ")}")
+
+        case Tak.names() do
+          :dynamic -> Mix.shell().info("Names are derived from branch names (dynamic mode)")
+          names -> Mix.shell().info("Available names: #{Enum.join(names, ", ")}")
+        end
+
         exit({:shutdown, 1})
 
       [branch | rest] ->
@@ -67,16 +72,17 @@ defmodule Mix.Tasks.Tak.Create do
             render_success(worktree)
 
           {:error, :no_slots} ->
-            Mix.shell().error(
-              "Error: All worktree names are in use (#{Enum.join(Tak.names(), ", ")})"
-            )
+            Mix.shell().error("Error: All worktree slots are in use")
+            exit({:shutdown, 1})
 
+          {:error, :no_ports_available} ->
+            Mix.shell().error("Error: No ports available in the configured range")
             exit({:shutdown, 1})
 
           {:error, {:invalid_name, n}} ->
-            Mix.shell().error(
-              "Error: Invalid name '#{n}'. Choose from: #{Enum.join(Tak.names(), ", ")}"
-            )
+            names = Tak.names()
+            hint = if is_list(names), do: ". Choose from: #{Enum.join(names, ", ")}", else: ""
+            Mix.shell().error("Error: Invalid name '#{n}'#{hint}")
 
             exit({:shutdown, 1})
 
@@ -108,11 +114,17 @@ defmodule Mix.Tasks.Tak.Create do
   end
 
   defp preview_auto_name do
-    trees_dir = Tak.trees_dir()
+    case Tak.names() do
+      :dynamic ->
+        nil
 
-    Enum.find(Tak.names(), fn candidate ->
-      not File.dir?(Path.join(trees_dir, candidate))
-    end)
+      names ->
+        trees_dir = Tak.trees_dir()
+
+        Enum.find(names, fn candidate ->
+          not File.dir?(Path.join(trees_dir, candidate))
+        end)
+    end
   end
 
   defp render_success(worktree) do
@@ -120,9 +132,7 @@ defmodule Mix.Tasks.Tak.Create do
     Mix.shell().info(IO.ANSI.format([:green, "Worktree created successfully!"]))
     Mix.shell().info("")
 
-    Mix.shell().info(
-      IO.ANSI.format([:bright, worktree.name, :reset, " ", :faint, "(#{worktree.branch})"])
-    )
+    Mix.shell().info(IO.ANSI.format([:bright, worktree.name, :reset, " ", :faint, "(#{worktree.branch})"]))
 
     Mix.shell().info("  Port:     #{worktree.port}")
     if worktree.database, do: Mix.shell().info("  Database: #{worktree.database}")

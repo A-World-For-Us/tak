@@ -28,7 +28,6 @@ defmodule Tak do
   Set options in `config/config.exs`:
 
       config :tak,
-        names: ~w(armstrong hickey mccarthy lovelace kay valim),
         base_port: 4000,
         trees_dir: "trees",
         create_database: true,
@@ -37,10 +36,10 @@ defmodule Tak do
 
   ### Options
 
-    * `:names` — worktree slot names, one per available worktree
-      (default: `armstrong hickey mccarthy lovelace kay valim`)
-    * `:base_port` — base port; each worktree gets `base_port + (index + 1) * 10`
-      (default: `4000`)
+    * `:names` — `:dynamic` (default) for branch-name-based naming, or a
+      list of fixed slot names for index-based port assignment
+    * `:base_port` — base port; worktrees get ports in `base_port + 10` to
+      `base_port + 250` range (step 10). Default: `4000`
     * `:trees_dir` — directory where worktrees are checked out (default: `"trees"`)
     * `:create_database` — run `mix ecto.setup` when creating a worktree
       (default: `true`); override per invocation with `--db` or `--no-db`
@@ -49,12 +48,12 @@ defmodule Tak do
 
   ## Port assignment
 
-  Ports are derived from the name's position in the `:names` list:
+  In dynamic mode (default), ports are allocated by scanning existing
+  worktrees and picking the first free port in `base_port + 10` to
+  `base_port + 250` (step 10).
 
-      base_port + (index + 1) * 10
-
-  With the defaults, `armstrong` gets `4010`, `hickey` gets `4020`,
-  `mccarthy` gets `4030`, and so on.
+  In fixed mode (`names: ~w(a b c)`), ports are derived from position:
+  `base_port + (index + 1) * 10`.
 
   ## Per-worktree files
 
@@ -69,7 +68,6 @@ defmodule Tak do
   path. No migration is required for older worktrees.
   """
 
-  @default_names ~w(armstrong hickey mccarthy lovelace kay valim)
   @default_base_port 4000
   @default_trees_dir "trees"
   @default_create_database true
@@ -101,16 +99,22 @@ defmodule Tak do
   end
 
   @doc """
-  Returns the configured list of worktree slot names.
+  Returns the configured worktree naming mode.
 
-  ## Example
-
-      iex> is_list(Tak.names())
-      true
+  Returns a list of fixed slot names, or `:dynamic` for branch-name-based
+  naming. Defaults to `:dynamic` when not configured.
   """
   def names do
-    Application.get_env(:tak, :names, @default_names)
+    case Application.get_env(:tak, :names, :dynamic) do
+      :dynamic -> :dynamic
+      names when is_list(names) -> names
+    end
   end
+
+  @doc """
+  Returns whether tak is in dynamic naming mode.
+  """
+  def dynamic?, do: names() == :dynamic
 
   @doc """
   Returns the configured base port number.
@@ -168,28 +172,69 @@ defmodule Tak do
   end
 
   @doc """
-  Returns the port assigned to a worktree name, or `nil` if the name is not
-  in the configured name list.
+  Returns the port assigned to a worktree name.
 
-  The port is `base_port() + (index + 1) * 10`, where `index` is the name's
-  zero-based position in `names()`. With default config, `"armstrong"` (index
-  0) gets port `4010`, `"hickey"` (index 1) gets `4020`, and so on.
+  In fixed mode, the port is `base_port() + (index + 1) * 10`, where
+  `index` is the name's position in `names()`. Returns `nil` if the
+  name is not in the list.
 
-  ## Examples
-
-      iex> Tak.port_for("armstrong")
-      4010
-
-      iex> Tak.port_for("hickey")
-      4020
-
-      iex> Tak.port_for("unknown")
-      nil
+  In dynamic mode, looks up the port from the worktree's `.tak` metadata.
+  Returns `nil` if not found.
   """
   def port_for(name) do
-    case Enum.find_index(names(), &(&1 == name)) do
-      nil -> nil
-      index -> base_port() + (index + 1) * 10
+    case names() do
+      :dynamic ->
+        path = Path.join(trees_dir(), name)
+
+        case Tak.Metadata.read(path) do
+          %Tak.Worktree{port: port} -> port
+          _ -> nil
+        end
+
+      names ->
+        case Enum.find_index(names, &(&1 == name)) do
+          nil -> nil
+          index -> base_port() + (index + 1) * 10
+        end
+    end
+  end
+
+  @doc """
+  Allocates the next available port by scanning existing worktrees.
+
+  Scans `.tak` metadata in `trees_dir` for ports already in use,
+  then returns the first free port in the range
+  `base_port + 10` to `base_port + 250` (step 10).
+  """
+  def allocate_port do
+    used_ports = used_ports()
+    base = base_port()
+
+    Enum.find(1..25, fn i ->
+      port = base + i * 10
+      port not in used_ports
+    end)
+    |> case do
+      nil -> {:error, :no_ports_available}
+      i -> {:ok, base + i * 10}
+    end
+  end
+
+  defp used_ports do
+    dir = trees_dir()
+
+    if File.dir?(dir) do
+      dir
+      |> File.ls!()
+      |> Enum.filter(&File.dir?(Path.join(dir, &1)))
+      |> Enum.flat_map(fn name ->
+        case Tak.Metadata.read(Path.join(dir, name)) do
+          %Tak.Worktree{port: port} when is_integer(port) -> [port]
+          _ -> []
+        end
+      end)
+    else
+      []
     end
   end
 

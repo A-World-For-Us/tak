@@ -2,8 +2,28 @@ defmodule TakTest do
   use ExUnit.Case, async: true
 
   describe "names/0" do
-    test "returns default names" do
-      assert Tak.names() == ~w(armstrong hickey mccarthy lovelace kay valim)
+    test "defaults to :dynamic" do
+      assert Tak.names() == :dynamic
+    end
+
+    test "returns list when configured" do
+      Application.put_env(:tak, :names, ~w(a b c))
+      assert Tak.names() == ~w(a b c)
+    after
+      Application.delete_env(:tak, :names)
+    end
+  end
+
+  describe "dynamic?/0" do
+    test "true by default" do
+      assert Tak.dynamic?() == true
+    end
+
+    test "false when names configured" do
+      Application.put_env(:tak, :names, ~w(a b))
+      assert Tak.dynamic?() == false
+    after
+      Application.delete_env(:tak, :names)
     end
   end
 
@@ -33,17 +53,24 @@ defmodule TakTest do
   end
 
   describe "port_for/1" do
-    test "calculates port based on name index" do
+    test "calculates port based on name index in fixed mode" do
+      Application.put_env(:tak, :names, ~w(armstrong hickey mccarthy))
       assert Tak.port_for("armstrong") == 4010
       assert Tak.port_for("hickey") == 4020
       assert Tak.port_for("mccarthy") == 4030
-      assert Tak.port_for("lovelace") == 4040
-      assert Tak.port_for("kay") == 4050
-      assert Tak.port_for("valim") == 4060
+    after
+      Application.delete_env(:tak, :names)
     end
 
-    test "returns nil for unknown name" do
+    test "returns nil for unknown name in fixed mode" do
+      Application.put_env(:tak, :names, ~w(armstrong))
       assert Tak.port_for("unknown") == nil
+    after
+      Application.delete_env(:tak, :names)
+    end
+
+    test "returns nil in dynamic mode when worktree does not exist" do
+      assert Tak.port_for("nonexistent") == nil
     end
   end
 
