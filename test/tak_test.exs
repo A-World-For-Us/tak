@@ -34,8 +34,15 @@ defmodule TakTest do
   end
 
   describe "trees_dir/0" do
-    test "returns default trees directory" do
-      assert Tak.trees_dir() == "trees"
+    test "returns expanded default trees directory" do
+      assert Tak.trees_dir() == Path.expand("trees")
+    end
+
+    test "expands relative paths" do
+      Application.put_env(:tak, :trees_dir, "../worktrees")
+      assert Tak.trees_dir() == Path.expand("../worktrees")
+    after
+      Application.delete_env(:tak, :trees_dir)
     end
   end
 

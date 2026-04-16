@@ -138,6 +138,7 @@ defmodule Tak do
   """
   def trees_dir do
     Application.get_env(:tak, :trees_dir, @default_trees_dir)
+    |> Path.expand()
   end
 
   @doc """
