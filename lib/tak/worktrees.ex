@@ -332,8 +332,9 @@ defmodule Tak.Worktrees do
     for dir <- Tak.copy_dirs() do
       if File.dir?(dir) do
         dest = Path.join(worktree_path, dir)
-        File.mkdir_p!(Path.dirname(dest))
-        Tak.System.cmd("cp", ["-r", dir, dest], stderr_to_stdout: true)
+        File.mkdir_p!(dest)
+        # cp -r src/. dest/ copies contents into dest, not the dir itself
+        Tak.System.cmd("cp", ["-r", "#{dir}/.", dest], stderr_to_stdout: true)
       end
     end
 

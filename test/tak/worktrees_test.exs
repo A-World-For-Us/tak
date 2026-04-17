@@ -360,7 +360,7 @@ defmodule Tak.WorktreesTest do
         |> Enum.filter(fn {cmd, _, _} -> cmd == "cp" end)
 
       assert length(cp_calls) == 1
-      {_, ["-r", "_build", dest], _} = hd(cp_calls)
+      {_, ["-r", "_build/.", dest], _} = hd(cp_calls)
       assert dest == Path.join(worktree.path, "_build")
     after
       Application.delete_env(:tak, :copy_dirs)
@@ -518,10 +518,10 @@ defmodule Tak.WorktreesTest do
       cp_calls = Enum.filter(history, fn {cmd, _, _} -> cmd == "cp" end)
       assert length(cp_calls) == 2
 
-      {_, ["-r", "_build", dest1], _} = Enum.at(cp_calls, 0)
+      {_, ["-r", "_build/.", dest1], _} = Enum.at(cp_calls, 0)
       assert dest1 == Path.join(worktree_path, "_build")
 
-      {_, ["-r", "deps", dest2], _} = Enum.at(cp_calls, 1)
+      {_, ["-r", "deps/.", dest2], _} = Enum.at(cp_calls, 1)
       assert dest2 == Path.join(worktree_path, "deps")
     after
       Application.delete_env(:tak, :copy_dirs)
